@@ -1,0 +1,38 @@
+{
+  "name": "applied-calculator",
+  "version": "0.1.0",
+  "description": "Field application planner: estimates applied vs. surface acres from a boundary and machine width, and the rate adjustment to finish product exactly.",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host",
+    "test": "vitest run",
+    "typecheck": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/isaacfaist-stack/applied-calculator.git"
+  },
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/isaacfaist-stack/applied-calculator/issues"
+  },
+  "homepage": "https://github.com/isaacfaist-stack/applied-calculator#readme",
+  "dependencies": {
+    "@tmcw/togeojson": "^7.1.2",
+    "clipper-lib": "^6.4.2",
+    "jszip": "^3.10.2",
+    "leaflet": "^1.9.4",
+    "shpjs": "^6.2.0"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.16",
+    "@types/leaflet": "^1.9.22",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vite-plugin-pwa": "^1.3.0",
+    "vitest": "^5.0.2"
+  },
+  "private": true,
+  "type": "module"
+}

@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Applied Acres" />
+    <meta name="description" content="Plan a field, see applied vs. surface acres, and get the rate change to finish your product." />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <title>Applied Acres</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <button class="field-btn" id="fieldBtn" type="button">
+        <span class="field-btn-label">Field</span>
+        <span class="field-btn-name" id="fieldName">Choose a field</span>
+        <span class="chev" aria-hidden="true">▾</span>
+      </button>
+      <div class="topbar-right">
+        <span class="gps-chip" id="gpsChip" hidden></span>
+        <button class="icon-btn" id="settingsBtn" type="button" aria-label="Settings">⚙︎</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel" id="panel">
+        <!-- Answer -->
+        <div class="card hero" id="hero">
+          <div class="hero-empty" id="heroEmpty">
+            <p class="hero-title">Pick a field to start</p>
+            <p class="muted">Import an Agvance boundary export (shapefile .zip), a KML/KMZ, or draw it on the map.</p>
+            <div class="row gap">
+              <button class="btn primary" type="button" data-action="open-fields">Choose field</button>
+            </div>
+          </div>
+          <div class="hero-body" id="heroBody" hidden>
+            <div class="stats3">
+              <div><span class="k">Surface</span><span class="v" id="surfaceAc">–</span><span class="u">ac</span></div>
+              <div><span class="k">Applied</span><span class="v" id="appliedAc">–</span><span class="u">ac</span></div>
+              <div><span class="k">Overlap</span><span class="v" id="overlapPct">–</span><span class="u"></span></div>
+            </div>
+            <div class="answer" id="answer">
+              <div class="answer-label">Set controller to</div>
+              <div class="answer-rate"><span id="answerRate">–</span> <span class="answer-unit" id="answerUnit"></span></div>
+              <div class="answer-change" id="answerChange">–</div>
+            </div>
+            <div class="answer-sub" id="answerSub"></div>
+            <div class="computing" id="computing" hidden>Calculating…</div>
+          </div>
+        </div>
+
+        <!-- Product -->
+        <div class="card">
+          <h2>Product</h2>
+          <div class="grid2">
+            <label class="field">
+              <span>Target rate</span>
+              <div class="input-unit">
+                <input id="rateInput" type="number" inputmode="decimal" min="0" step="any" />
+                <select id="unitSelect" aria-label="Product unit">
+                  <option value="lb">lb/ac</option>
+                  <option value="gal">gal/ac</option>
+                  <option value="ton">ton/ac</option>
+                  <option value="qt">qt/ac</option>
+                  <option value="oz">oz/ac</option>
+                  <option value="unit">units/ac</option>
+                </select>
+              </div>
+            </label>
+            <label class="field">
+              <span>Loaded for this field <em>(optional)</em></span>
+              <div class="input-unit">
+                <input id="loadedInput" type="number" inputmode="decimal" min="0" step="any" placeholder="e.g. 24000" />
+                <span class="suffix" id="loadedUnit">lb</span>
+              </div>
+            </label>
+          </div>
+          <dl class="kv" id="productKv"></dl>
+        </div>
+
+        <!-- Plan -->
+        <div class="card">
+          <h2>Work plan</h2>
+          <div class="ctl">
+            <span class="ctl-label">Headland laps</span>
+            <div class="stepper">
+              <button type="button" id="lapsMinus" aria-label="Fewer laps">−</button>
+              <output id="lapsOut">2</output>
+              <button type="button" id="lapsPlus" aria-label="More laps">+</button>
+            </div>
+          </div>
+          <div class="ctl col">
+            <span class="ctl-label">Pass direction</span>
+            <div class="seg" id="headingSeg" role="radiogroup">
+              <button type="button" data-v="longest">Longest side</button>
+              <button type="button" data-v="optimized">Least overlap</button>
+              <button type="button" data-v="manual">Manual</button>
+            </div>
+            <div class="heading-row">
+              <input type="range" id="headingRange" min="0" max="179" step="1" />
+              <output id="headingOut">0°</output>
+            </div>
+          </div>
+          <div class="ctl col">
+            <span class="ctl-label">Shut off at headland</span>
+            <div class="seg" id="shutoffSeg" role="radiogroup">
+              <button type="button" data-v="noskip">No skips</button>
+              <button type="button" data-v="center">Center</button>
+              <button type="button" data-v="nooverlap">Least overlap</button>
+            </div>
+          </div>
+          <div class="ctl col">
+            <span class="ctl-label">Headland corners</span>
+            <div class="seg" id="cornerSeg" role="radiogroup">
+              <button type="button" data-v="overrun">Run into corner</button>
+              <button type="button" data-v="pivot">Pivot on line</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Machine -->
+        <div class="card">
+          <h2>Machine</h2>
+          <div class="ctl col">
+            <select id="machineSelect" aria-label="Machine"></select>
+          </div>
+          <div class="grid2">
+            <label class="field">
+              <span>Working width</span>
+              <div class="input-unit">
+                <input id="widthInput" type="number" inputmode="decimal" min="1" step="any" />
+                <span class="suffix">ft</span>
+              </div>
+            </label>
+            <label class="field">
+              <span>Sections</span>
+              <div class="input-unit">
+                <input id="sectionsInput" type="number" inputmode="numeric" min="1" max="48" step="1" />
+                <span class="suffix">#</span>
+              </div>
+            </label>
+          </div>
+          <div class="row gap wrap">
+            <button class="btn" type="button" id="addMachineBtn">Add machine</button>
+            <button class="btn" type="button" id="renameMachineBtn">Rename</button>
+            <button class="btn danger-text" type="button" id="deleteMachineBtn">Delete</button>
+          </div>
+        </div>
+
+        <!-- Breakdown -->
+        <div class="card" id="breakdownCard" hidden>
+          <h2>Where the product goes</h2>
+          <ul class="legend" id="legend"></ul>
+          <dl class="kv" id="planKv"></dl>
+        </div>
+
+        <!-- Mid-field -->
+        <details class="card" id="midCard">
+          <summary><h2>Mid-field check</h2><span class="muted">Running long or short?</span></summary>
+          <p class="muted small">Enter what the monitor and bin show now to get the rate that finishes the field empty.</p>
+          <div class="grid2">
+            <label class="field">
+              <span>Applied acres so far (monitor)</span>
+              <div class="input-unit">
+                <input id="midAppliedInput" type="number" inputmode="decimal" min="0" step="any" />
+                <span class="suffix">ac</span>
+              </div>
+            </label>
+            <label class="field">
+              <span>Product left</span>
+              <div class="input-unit">
+                <input id="midLeftInput" type="number" inputmode="decimal" min="0" step="any" />
+                <span class="suffix" id="midLeftUnit">lb</span>
+              </div>
+            </label>
+          </div>
+          <div class="mid-answer" id="midAnswer"></div>
+        </details>
+
+        <p class="footnote muted small">
+          Applied acres = working width × distance with product on — what your rate controller counts. Estimates
+          assume straight passes at the width you set; spread pattern and GPS accuracy add real-world variation.
+        </p>
+      </section>
+
+      <section class="mapwrap">
+        <div id="map"></div>
+        <div class="map-tools">
+          <button class="map-btn" type="button" id="locateBtn" aria-label="Show my location">◎</button>
+          <button class="map-btn" type="button" id="layersBtn" aria-label="Toggle coverage layer">▦</button>
+          <button class="map-btn" type="button" id="fitBtn" aria-label="Zoom to field">⤢</button>
+        </div>
+        <div class="map-legend" id="mapLegend" hidden>
+          <span><i class="sw single"></i>Once</span>
+          <span><i class="sw double"></i>2×</span>
+          <span><i class="sw triple"></i>3×+</span>
+          <span><i class="sw skip"></i>Skip</span>
+          <span><i class="sw off"></i>Off field</span>
+        </div>
+        <div class="draw-bar" id="drawBar" hidden>
+          <span id="drawHint">Tap each corner of the field</span>
+          <div class="row gap">
+            <button class="btn" type="button" id="drawUndo">Undo</button>
+            <button class="btn" type="button" id="drawCancel">Cancel</button>
+            <button class="btn primary" type="button" id="drawDone">Done</button>
+          </div>
+        </div>
+        <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+      </section>
+    </main>
+
+    <!-- Fields sheet -->
+    <dialog class="sheet" id="fieldsSheet">
+      <div class="sheet-head">
+        <h2>Fields</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
+      </div>
+      <div class="sheet-actions">
+        <label class="btn primary file-btn">
+          Import file
+          <input type="file" id="fileInput" multiple accept=".zip,.kml,.kmz,.geojson,.json,.shp,.dbf,.prj,.shx,.cpg" />
+        </label>
+        <button class="btn" type="button" id="drawBtn">Draw on map</button>
+        <button class="btn" type="button" id="syncBtn" hidden>Agvance fields</button>
+      </div>
+      <input class="search" id="fieldSearch" type="search" placeholder="Search fields, growers, farms" />
+      <ul class="field-list" id="fieldList"></ul>
+    </dialog>
+
+    <!-- Remote (Agvance) sheet -->
+    <dialog class="sheet" id="remoteSheet">
+      <div class="sheet-head">
+        <h2>Agvance fields</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
+      </div>
+      <input class="search" id="remoteSearch" type="search" placeholder="Search grower or field" />
+      <ul class="field-list" id="remoteList"></ul>
+    </dialog>
+
+    <!-- Settings sheet -->
+    <dialog class="sheet" id="settingsSheet">
+      <div class="sheet-head">
+        <h2>Settings</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
+      </div>
+      <div class="ctl col">
+        <span class="ctl-label">Appearance</span>
+        <div class="seg" id="themeSeg" role="radiogroup">
+          <button type="button" data-v="auto">Auto</button>
+          <button type="button" data-v="light">Day</button>
+          <button type="button" data-v="dark">Night</button>
+        </div>
+      </div>
+      <h3>Agvance boundary server</h3>
+      <p class="muted small">
+        Optional. Connects to a small server that holds your company's Agvance API access and serves field
+        boundaries. Leave blank to import exported files instead.
+      </p>
+      <label class="field">
+        <span>Server URL</span>
+        <input id="serverUrl" type="url" inputmode="url" placeholder="https://boundaries.example.com" autocomplete="off" />
+      </label>
+      <label class="field">
+        <span>Access token</span>
+        <input id="serverToken" type="password" autocomplete="off" />
+      </label>
+      <div class="row gap">
+        <button class="btn primary" type="button" id="saveServerBtn">Save</button>
+      </div>
+      <h3>Data</h3>
+      <div class="row gap wrap">
+        <button class="btn" type="button" id="exportBtn">Back up fields &amp; machines</button>
+        <label class="btn file-btn">
+          Restore backup
+          <input type="file" id="restoreInput" accept=".json" />
+        </label>
+      </div>
+    </dialog>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
