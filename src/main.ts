@@ -3,14 +3,17 @@ import './styles.css';
 import L from 'leaflet';
 import { registerSW } from 'virtual:pwa-register';
 
-import { M_PER_FT, SQ_M_PER_ACRE } from './engine/geometry';
+import { M_PER_FT, SQ_M_PER_ACRE, ringArea } from './engine/geometry';
+import { makeProjection } from './engine/projection';
 import type { CornerStyle, ShutoffMode } from './engine/plan';
 import { adviseMidField, adviseRate } from './engine/rate';
 import { type LocalField, distanceMiles, geometryCenter, geometryRings, pointInGeometry, toLocalField } from './fieldModel';
 import { fetchRemoteBoundary, listRemoteFields } from './integrations/boundaryServer';
 import { type BoundaryGeometry, importFiles } from './io/import';
+import { PolygonEditor } from './map/editor';
+import { clearGoogleSession, createGoogleLayer } from './map/googleTiles';
 import type { PlanRequest, PlanResponse } from './planWorker';
-import { type FieldRecord, type MachineRecord, type Settings, DEFAULT_MACHINES, store, uid } from './store';
+import { type FieldRecord, type Imagery, type MachineRecord, type Settings, DEFAULT_MACHINES, store, uid } from './store';
 
 registerSW({ immediate: true });
 
@@ -69,6 +72,9 @@ let result: PlanResponse | null = null;
 let gps: [number, number] | null = null;
 let showCoverage = true;
 
+type EditMode = 'new' | 'edit' | 'hole';
+let editSession: { mode: EditMode; fieldId?: string; editor: PolygonEditor } | null = null;
+
 const plan = {
   laps: 2,
   headingMode: 'longest' as 'longest' | 'optimized' | 'manual',
@@ -107,18 +113,69 @@ function applyTheme() {
 // Map
 
 const map = L.map('map', { zoomControl: false, attributionControl: true }).setView([41.6, -93.6], 6);
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-  maxNativeZoom: 19,
-  maxZoom: 21,
-  attribution: 'Imagery © Esri',
-}).addTo(map);
+map.attributionControl.setPrefix(false);
+
+const esriImagery = L.tileLayer(
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  { maxNativeZoom: 19, maxZoom: 21, attribution: 'Imagery © Esri' },
+);
+let baseLayer: L.TileLayer | null = null;
+let baseRequest = 0;
+
+const IMAGERY_NAMES: Record<Imagery, string> = {
+  'google-satellite': 'Google satellite',
+  'google-hybrid': 'Google satellite + roads',
+  esri: 'Esri satellite',
+};
+
+function googleKey(): string {
+  return (settings.googleKey || import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '').trim();
+}
+
+/** Imagery actually shown: Google needs a key and a connection. */
+function effectiveImagery(): Imagery {
+  const want = settings.imagery ?? 'google-satellite';
+  if (want !== 'esri' && (!googleKey() || !navigator.onLine)) return 'esri';
+  return want;
+}
+
+async function setBaseLayer() {
+  const req = ++baseRequest;
+  const kind = effectiveImagery();
+  let next: L.TileLayer = esriImagery;
+  if (kind !== 'esri') {
+    try {
+      next = await createGoogleLayer(map, googleKey(), kind === 'google-hybrid' ? 'hybrid' : 'satellite');
+    } catch (err) {
+      toast(`${(err as Error).message}. Showing Esri imagery instead.`, true);
+      next = esriImagery;
+    }
+  }
+  if (req !== baseRequest) return;
+  if (baseLayer && baseLayer !== next) baseLayer.remove();
+  if (!map.hasLayer(next)) next.addTo(map).bringToBack();
+  if (next !== esriImagery) {
+    // A rejected session (bad or expired key) shows up as tile errors.
+    let errors = 0;
+    next.on('tileerror', () => {
+      if (++errors === 8 && navigator.onLine) {
+        clearGoogleSession();
+        toast('Google imagery is not loading. Check the API key in Settings.', true);
+      }
+    });
+  }
+  baseLayer = next;
+}
+
+window.addEventListener('online', () => void setBaseLayer());
+window.addEventListener('offline', () => void setBaseLayer());
 
 const layers = {
+  fields: L.layerGroup().addTo(map),
   boundary: L.layerGroup().addTo(map),
   coverage: L.layerGroup().addTo(map),
   lines: L.layerGroup().addTo(map),
   gps: L.layerGroup().addTo(map),
-  draw: L.layerGroup().addTo(map),
 };
 let coverageUrl = '';
 
@@ -126,14 +183,46 @@ function toLatLng([lon, lat]: [number, number]): L.LatLngExpression {
   return [lat, lon];
 }
 
+function fieldLatLngs(f: FieldRecord): L.LatLngExpression[][][] {
+  return geometryRings(f.geometry).map((p) => p.map((r) => r.map(toLatLng)));
+}
+
+/** Active field in white; every other saved field outlined and tappable. */
 function drawBoundary() {
   layers.boundary.clearLayers();
-  if (!activeField) return;
-  const polys = geometryRings(activeField.geometry).map((p) => p.map((r) => r.map(toLatLng)));
-  L.polygon(polys as L.LatLngExpression[][][], { color: '#ffffff', weight: 3, fill: false, interactive: false }).addTo(
+  layers.fields.clearLayers();
+  const editing = !!editSession;
+  for (const f of fields) {
+    if (f.id === activeField?.id) continue;
+    const poly = L.polygon(fieldLatLngs(f), {
+      color: '#fde047',
+      weight: 2,
+      opacity: 0.9,
+      fillColor: '#fde047',
+      fillOpacity: 0.08,
+      interactive: !editing,
+    });
+    poly.bindTooltip(esc(f.name), { direction: 'center', className: 'field-label', permanent: map.getZoom() >= 14 });
+    poly.on('click', () => {
+      if (!editSession) selectField(f.id);
+    });
+    poly.addTo(layers.fields);
+  }
+  if (!activeField || editSession?.fieldId === activeField.id) return;
+  L.polygon(fieldLatLngs(activeField), { color: '#ffffff', weight: 3, fill: false, interactive: false }).addTo(
     layers.boundary,
   );
 }
+
+// Field names are shown permanently only when zoomed in enough to read them.
+let labelsPermanent = false;
+map.on('zoomend', () => {
+  const want = map.getZoom() >= 14;
+  if (want !== labelsPermanent) {
+    labelsPermanent = want;
+    drawBoundary();
+  }
+});
 
 function fitField() {
   if (!activeField) return;
@@ -402,7 +491,8 @@ function renderMidField() {
 // ---------------------------------------------------------------------------
 // Field selection
 
-function selectField(id: string | null) {
+function selectField(id: string | null, opts: { keepView?: boolean } = {}) {
+  if (editSession) stopEdit();
   activeField = id ? fields.find((f) => f.id === id) ?? null : null;
   result = null;
   local = null;
@@ -410,6 +500,7 @@ function selectField(id: string | null) {
   layers.lines.clearLayers();
   settings.lastFieldId = activeField?.id;
   saveSettings();
+  $('boundaryCard').hidden = !activeField;
   if (!activeField) {
     $('fieldName').textContent = 'Choose a field';
     drawBoundary();
@@ -431,7 +522,7 @@ function selectField(id: string | null) {
   }
   syncControls();
   drawBoundary();
-  fitField();
+  if (!opts.keepView) fitField();
   renderResults();
   updateGpsChip();
   schedulePlan();
@@ -499,6 +590,7 @@ $('fieldList').addEventListener('click', (e) => {
       store.deleteField(f.id);
       fields = store.fields();
       if (activeField?.id === f.id) selectField(null);
+      else drawBoundary();
       renderFieldList();
     }
   } else if (pick) {
@@ -561,6 +653,7 @@ $('fileInput').addEventListener('change', async (e) => {
       toast(`Imported ${added[0].name}`);
     } else {
       toast(`Imported ${added.length} fields`);
+      drawBoundary();
       renderFieldList();
     }
   } catch (err) {
@@ -569,59 +662,161 @@ $('fileInput').addEventListener('change', async (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// Draw a boundary on the map
+// Drawing and editing boundaries on the satellite map
 
-let drawPts: L.LatLng[] = [];
-let drawing = false;
+type LonLatRing = number[][];
 
-function renderDraw() {
-  layers.draw.clearLayers();
-  if (drawPts.length > 1) L.polygon(drawPts, { color: '#22c55e', weight: 3, fillOpacity: 0.15 }).addTo(layers.draw);
-  for (const p of drawPts) {
-    L.circleMarker(p, { radius: 7, color: '#fff', weight: 3, fillColor: '#16a34a', fillOpacity: 1 }).addTo(layers.draw);
+function closeRing(pts: L.LatLng[]): LonLatRing {
+  const ring = pts.map((p) => [p.lng, p.lat]);
+  ring.push(ring[0]);
+  return ring;
+}
+
+function openRing(ring: LonLatRing): L.LatLng[] {
+  const pts = ring.map(([lng, lat]) => L.latLng(lat, lng));
+  const a = pts[0];
+  const b = pts[pts.length - 1];
+  if (pts.length > 1 && a.lat === b.lat && a.lng === b.lng) pts.pop();
+  return pts;
+}
+
+/** Polygons of a geometry as a list (Polygon → one entry). */
+function polygonsOf(g: BoundaryGeometry): LonLatRing[][] {
+  return g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+}
+
+function geometryFrom(polys: LonLatRing[][]): BoundaryGeometry {
+  return polys.length === 1 ? { type: 'Polygon', coordinates: polys[0] } : { type: 'MultiPolygon', coordinates: polys };
+}
+
+function ringAcres(pts: L.LatLng[]): number {
+  if (pts.length < 3) return 0;
+  const proj = makeProjection(pts[0].lng, pts[0].lat);
+  return ringArea(pts.map((p) => proj.toLocal([p.lng, p.lat]))) / SQ_M_PER_ACRE;
+}
+
+/** Index of the largest polygon part (the one "Edit boundary" edits). */
+function largestPart(g: BoundaryGeometry): number {
+  const areas = polygonsOf(g).map((p) => ringAcres(openRing(p[0])));
+  return areas.indexOf(Math.max(...areas));
+}
+
+const EDIT_HINTS: Record<EditMode, string> = {
+  new: 'Tap each corner of the field',
+  edit: 'Drag corners to move · tap a corner to remove · tap a ◦ to add one',
+  hole: 'Tap the corners of the area to leave out (waterway, farmstead, pond)',
+};
+
+function startEdit(mode: EditMode) {
+  if (editSession) stopEdit();
+  (document.getElementById('fieldsSheet') as HTMLDialogElement).close();
+  let initial: L.LatLng[] = [];
+  if (mode === 'edit') {
+    if (!activeField) return;
+    const part = polygonsOf(activeField.geometry)[largestPart(activeField.geometry)];
+    initial = openRing(part[0]);
+  } else if (mode === 'hole' && !activeField) {
+    return;
   }
-  $('drawHint').textContent = drawPts.length < 3 ? `Tap each corner of the field (${drawPts.length} so far)` : `${drawPts.length} corners`;
-}
-
-function stopDraw() {
-  drawing = false;
-  drawPts = [];
-  layers.draw.clearLayers();
-  $('drawBar').hidden = true;
-}
-
-$('drawBtn').addEventListener('click', () => {
-  ($('fieldsSheet') as HTMLDialogElement).close();
-  drawing = true;
-  drawPts = [];
+  const editor = new PolygonEditor(map, initial, {
+    appendOnMapTap: mode !== 'edit',
+    color: mode === 'hole' ? '#f87171' : '#22c55e',
+    onChange: (pts) => {
+      $('drawHint').textContent =
+        pts.length < 3 ? `${EDIT_HINTS[mode]} (${pts.length} so far)` : `${EDIT_HINTS[mode]} — ${fmt(ringAcres(pts))} ac`;
+    },
+  });
+  editSession = { mode, fieldId: mode === 'new' ? undefined : activeField?.id, editor };
   $('drawBar').hidden = false;
-  renderDraw();
-  if (gps && !activeField) map.setView(toLatLng(gps), 16);
-});
+  layers.coverage.remove();
+  layers.lines.remove();
+  $('mapLegend').hidden = true;
+  drawBoundary();
+  if (mode === 'new' && gps && !activeField) map.setView(toLatLng(gps), 16);
+}
 
-map.on('click', (e: L.LeafletMouseEvent) => {
-  if (!drawing) return;
-  drawPts.push(e.latlng);
-  renderDraw();
-});
-$('drawUndo').addEventListener('click', () => {
-  drawPts.pop();
-  renderDraw();
-});
-$('drawCancel').addEventListener('click', stopDraw);
-$('drawDone').addEventListener('click', () => {
-  if (drawPts.length < 3) {
+function stopEdit() {
+  editSession?.editor.destroy();
+  editSession = null;
+  $('drawBar').hidden = true;
+  layers.coverage.addTo(map);
+  layers.lines.addTo(map);
+  $('mapLegend').hidden = !(showCoverage && result);
+  drawBoundary();
+}
+
+function saveEdit() {
+  if (!editSession) return;
+  const pts = editSession.editor.points;
+  if (pts.length < 3) {
     toast('Tap at least 3 corners.', true);
     return;
   }
-  const name = prompt('Field name?', 'New field');
-  if (name === null) return;
-  const ring = drawPts.map((p) => [p.lng, p.lat]);
-  ring.push(ring[0]);
-  const [added] = addFields([{ name: name.trim() || 'New field', geometry: { type: 'Polygon', coordinates: [ring] } }], 'drawn');
-  stopDraw();
-  selectField(added.id);
+  const mode = editSession.mode;
+  if (mode === 'new') {
+    const name = prompt('Field name?', 'New field');
+    if (name === null) return;
+    stopEdit();
+    const [added] = addFields([{ name: name.trim() || 'New field', geometry: { type: 'Polygon', coordinates: [closeRing(pts)] } }], 'drawn');
+    selectField(added.id);
+    return;
+  }
+  const f = fields.find((x) => x.id === editSession!.fieldId);
+  if (!f) {
+    stopEdit();
+    return;
+  }
+  const parts = polygonsOf(f.geometry).map((p) => p.map((r) => r.slice()));
+  if (mode === 'edit') {
+    parts[largestPart(f.geometry)][0] = closeRing(pts);
+  } else {
+    // Add the exclusion to whichever part it sits in.
+    const probe: [number, number] = [pts[0].lng, pts[0].lat];
+    const idx = parts.findIndex((p) => pointInGeometry({ type: 'Polygon', coordinates: [p[0]] }, probe));
+    if (idx < 0) {
+      toast('The exclusion has to be inside the field boundary.', true);
+      return;
+    }
+    parts[idx].push(closeRing(pts));
+  }
+  f.geometry = geometryFrom(parts);
+  f.updatedAt = Date.now();
+  store.saveFields(fields);
+  stopEdit();
+  selectField(f.id, { keepView: true });
+  toast(mode === 'edit' ? 'Boundary saved' : 'Exclusion added');
+}
+
+$('drawBtn').addEventListener('click', () => startEdit('new'));
+$('editBoundaryBtn').addEventListener('click', () => startEdit('edit'));
+$('addHoleBtn').addEventListener('click', () => startEdit('hole'));
+$('clearHolesBtn').addEventListener('click', () => {
+  if (!activeField) return;
+  const parts = polygonsOf(activeField.geometry);
+  const count = parts.reduce((n, p) => n + p.length - 1, 0);
+  if (!count) {
+    toast('This field has no exclusions.');
+    return;
+  }
+  if (!confirm(`Remove ${count} exclusion${count > 1 ? 's' : ''} from ${activeField.name}?`)) return;
+  activeField.geometry = geometryFrom(parts.map((p) => [p[0]]));
+  activeField.updatedAt = Date.now();
+  store.saveFields(fields);
+  selectField(activeField.id, { keepView: true });
 });
+$('renameFieldBtn').addEventListener('click', () => {
+  if (!activeField) return;
+  const name = prompt('Field name', activeField.name);
+  if (!name?.trim()) return;
+  activeField.name = name.trim();
+  activeField.updatedAt = Date.now();
+  store.saveFields(fields);
+  $('fieldName').textContent = activeField.name;
+  drawBoundary();
+});
+$('drawUndo').addEventListener('click', () => editSession?.editor.undo());
+$('drawCancel').addEventListener('click', stopEdit);
+$('drawDone').addEventListener('click', saveEdit);
 
 // ---------------------------------------------------------------------------
 // Agvance (boundary server)
@@ -831,6 +1026,11 @@ $('settingsBtn').addEventListener('click', () => {
   ($('serverUrl') as HTMLInputElement).value = settings.boundaryServer?.url ?? '';
   ($('serverToken') as HTMLInputElement).value = settings.boundaryServer?.token ?? '';
   setSeg('themeSeg', settings.theme);
+  setSeg('imagerySeg', settings.imagery ?? 'google-satellite');
+  ($('googleKey') as HTMLInputElement).value = settings.googleKey ?? '';
+  ($('googleKey') as HTMLInputElement).placeholder = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
+    ? 'Using the key built into this app'
+    : 'AIza…';
   openSheet('settingsSheet');
 });
 onSeg('themeSeg', (v) => {
@@ -838,6 +1038,40 @@ onSeg('themeSeg', (v) => {
   saveSettings();
   applyTheme();
 });
+onSeg('imagerySeg', (v) => setSeg('imagerySeg', v));
+$('saveGoogleBtn').addEventListener('click', () => {
+  const key = ($('googleKey') as HTMLInputElement).value.trim();
+  const chosen = $('imagerySeg').querySelector<HTMLElement>('[aria-checked="true"]')?.dataset.v as Imagery | undefined;
+  if (key !== (settings.googleKey ?? '')) clearGoogleSession();
+  settings.googleKey = key || undefined;
+  settings.imagery = chosen ?? settings.imagery;
+  saveSettings();
+  void setBaseLayer();
+  const shown = effectiveImagery();
+  toast(
+    settings.imagery !== 'esri' && shown === 'esri'
+      ? navigator.onLine
+        ? 'Saved. Add a Google Maps API key to see Google imagery.'
+        : 'Saved. Google imagery will load when you have signal.'
+      : `Showing ${IMAGERY_NAMES[shown]}`,
+  );
+});
+
+$('imageryBtn').addEventListener('click', () => {
+  if (!googleKey()) {
+    toast('Add a Google Maps API key in Settings to use Google imagery.');
+    return;
+  }
+  const order: Imagery[] = ['google-satellite', 'google-hybrid', 'esri'];
+  const cur = settings.imagery ?? 'google-satellite';
+  settings.imagery = order[(order.indexOf(cur) + 1) % order.length];
+  saveSettings();
+  void setBaseLayer();
+  toast(
+    effectiveImagery() === settings.imagery ? IMAGERY_NAMES[settings.imagery] : 'No signal: showing saved Esri imagery',
+  );
+});
+
 $('saveServerBtn').addEventListener('click', () => {
   const url = ($('serverUrl') as HTMLInputElement).value.trim();
   const token = ($('serverToken') as HTMLInputElement).value.trim();
@@ -878,8 +1112,14 @@ $('restoreInput').addEventListener('change', async (e) => {
 // Boot
 
 applyTheme();
+void setBaseLayer();
 syncControls();
 $('layersBtn').setAttribute('aria-pressed', 'true');
 if (settings.lastFieldId && fields.some((f) => f.id === settings.lastFieldId)) selectField(settings.lastFieldId);
-else renderResults();
+else {
+  renderResults();
+  drawBoundary();
+  const all = fields.flatMap((f) => fieldLatLngs(f).flatMap((p) => p[0])) as L.LatLngTuple[];
+  if (all.length) map.fitBounds(L.latLngBounds(all), { padding: [24, 24] });
+}
 startGps();

@@ -54,6 +54,23 @@ acres, and passes shut off across them.
 4. Enter the target rate, plus the amount loaded if you know it. The big
    number at the top is what to set on the controller.
 
+### Satellite map and drawing boundaries
+
+- **Imagery:** Google satellite, Google satellite with roads and labels, or
+  Esri. Tap 🛰 on the map to switch. Google imagery needs an API key (see
+  [docs/google-maps.md](docs/google-maps.md)). Esri needs no key, and Esri
+  tiles you've viewed stay available offline. Without signal, the app falls
+  back to Esri automatically.
+- **All your fields on the map:** every saved field is outlined and labeled.
+  Tap one to open it.
+- **Draw a field:** tap **Field → Draw on map**, then tap the corners. The
+  acreage updates as you go.
+- **Edit a field:** **Edit boundary** lets you drag a corner to move it, tap a
+  corner to remove it, or tap the small ◦ between two corners to add one.
+  Undo works through every change.
+- **Exclusions:** **Add exclusion** draws a waterway, farmstead or pond inside
+  the field. It comes off the surface acres, and passes shut off across it.
+
 Fields, machines and each field's last settings are saved on the iPad. With
 location allowed, the field list sorts by distance, and the app offers the
 field you're parked in. **Settings → Back up** saves everything to a file.
@@ -77,6 +94,8 @@ dependencies and runs in a web worker.
 | `src/engine/coverage.ts` | Rasterized coverage map and overlap/skip totals |
 | `src/engine/rate.ts` | Rate adjustment and mid-field math |
 | `src/io/import.ts` | Shapefile / KML / KMZ / GeoJSON import |
+| `src/map/googleTiles.ts` | Google satellite imagery (Map Tiles API) with live attribution |
+| `src/map/editor.ts` | Touch boundary editor (draw, drag, insert, remove, undo) |
 | `src/integrations/boundaryServer.ts` | Optional Agvance sync via a boundary server |
 | `samples/` | Example boundary files for trying the app |
 

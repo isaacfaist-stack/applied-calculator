@@ -802,10 +802,46 @@ button:focus-visible {
   font: inherit;
 }
 
-.draw-vertex {
-  background: #fff;
-  border: 3px solid var(--accent);
+/* Editor handles: big invisible hit area, small visible dot. */
+.edit-vertex,
+.edit-mid {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edit-vertex::after {
+  content: '';
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
+  background: #fff;
+  border: 3px solid #16a34a;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 50%);
+}
+
+.edit-mid::after {
+  content: '';
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 70%);
+  border: 2px solid #16a34a;
+}
+
+.leaflet-tooltip.field-label {
+  background: rgb(0 0 0 / 55%);
+  border: 0;
+  box-shadow: none;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.85rem;
+  padding: 2px 8px;
+  border-radius: 8px;
+}
+
+.leaflet-tooltip.field-label::before {
+  display: none;
 }
 
 /* Sheets ----------------------------------------------------------------- */

@@ -157,6 +157,18 @@
           <dl class="kv" id="planKv"></dl>
         </div>
 
+        <!-- Boundary -->
+        <div class="card" id="boundaryCard" hidden>
+          <h2>Field boundary</h2>
+          <div class="row gap wrap">
+            <button class="btn" type="button" id="editBoundaryBtn">Edit boundary</button>
+            <button class="btn" type="button" id="addHoleBtn">Add exclusion</button>
+            <button class="btn" type="button" id="renameFieldBtn">Rename</button>
+            <button class="btn danger-text" type="button" id="clearHolesBtn">Clear exclusions</button>
+          </div>
+          <p class="muted small">Exclusions are areas inside the boundary that don't get product, like waterways, farmsteads and ponds.</p>
+        </div>
+
         <!-- Mid-field -->
         <details class="card" id="midCard">
           <summary><h2>Mid-field check</h2><span class="muted">Running long or short?</span></summary>
@@ -189,6 +201,7 @@
       <section class="mapwrap">
         <div id="map"></div>
         <div class="map-tools">
+          <button class="map-btn" type="button" id="imageryBtn" aria-label="Change satellite imagery">🛰</button>
           <button class="map-btn" type="button" id="locateBtn" aria-label="Show my location">◎</button>
           <button class="map-btn" type="button" id="layersBtn" aria-label="Toggle coverage layer">▦</button>
           <button class="map-btn" type="button" id="fitBtn" aria-label="Zoom to field">⤢</button>
@@ -253,6 +266,25 @@
           <button type="button" data-v="light">Day</button>
           <button type="button" data-v="dark">Night</button>
         </div>
+      </div>
+      <h3>Satellite imagery</h3>
+      <div class="ctl col">
+        <div class="seg" id="imagerySeg" role="radiogroup">
+          <button type="button" data-v="google-satellite">Google</button>
+          <button type="button" data-v="google-hybrid">Google + roads</button>
+          <button type="button" data-v="esri">Esri</button>
+        </div>
+      </div>
+      <label class="field">
+        <span>Google Maps API key</span>
+        <input id="googleKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…" />
+      </label>
+      <p class="muted small" id="googleKeyNote">
+        Google imagery needs a Google Maps Platform key with the Map Tiles API turned on. Esri imagery works without a
+        key, and Esri tiles you've already viewed keep working offline.
+      </p>
+      <div class="row gap">
+        <button class="btn primary" type="button" id="saveGoogleBtn">Save imagery settings</button>
       </div>
       <h3>Agvance boundary server</h3>
       <p class="muted small">

@@ -40,12 +40,17 @@ export interface ProductSettings {
   loaded?: number;
 }
 
+export type Imagery = 'google-satellite' | 'google-hybrid' | 'esri';
+
 export interface Settings {
   activeMachineId?: string;
   lastFieldId?: string;
   product: ProductSettings;
   theme: 'auto' | 'light' | 'dark';
   boundaryServer?: { url: string; token: string };
+  /** Google Maps Platform key (Map Tiles API); overrides the build-time key. */
+  googleKey?: string;
+  imagery?: Imagery;
 }
 
 const KEYS = { fields: 'aac.fields.v1', machines: 'aac.machines.v1', settings: 'aac.settings.v1' };
