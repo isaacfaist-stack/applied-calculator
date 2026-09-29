@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { type Poly, SQ_M_PER_ACRE, polysArea } from '../src/engine/geometry';
 import { optimizeHeading, plan, prepareField } from '../src/engine/plan';
 import { computeCoverage } from '../src/engine/coverage';
-import { adviseMidField, adviseRate } from '../src/engine/rate';
+import { actualRateAt, adviseMidField, adviseRate, densityFor } from '../src/engine/rate';
 
 const rect = (w: number, h: number): Poly[] => [
   { outer: [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }], holes: [] },
@@ -113,6 +113,31 @@ describe('rate', () => {
     expect(m.remainingAc).toBe(45);
     expect(m.rateToFinish).toBeCloseTo(188.89, 2);
     expect(m.balance).toBe(-500);
+  });
+
+  it('density adjustment is the inverse of a rate adjustment', () => {
+    // Rate cut to 190.476 (−4.76%) is the same as programming 5% more density.
+    const d = densityFor(60, 200, 190.476);
+    expect(d).toBeCloseTo(63, 2);
+    expect(d / 60 - 1).toBeCloseTo(0.05, 4);
+    // With that density and the screen left at 200, the machine meters 190.476.
+    expect(actualRateAt(60, 200, d)).toBeCloseTo(190.476, 3);
+    // Product left over at the end: program less density to dump it.
+    expect(densityFor(60, 200, 210)).toBeLessThan(60);
+  });
+
+  it('machine bias: a spreader that puts out 3% extra gets set 3% lower', () => {
+    const a = adviseRate({ surfaceAc: 100, appliedAc: 105, targetRate: 200, loaded: 20000, bias: 0.03 })!;
+    // Controller setting × applied acres × 1.03 must equal what the field needs.
+    expect(a.rateForTarget * 105 * 1.03).toBeCloseTo(200 * 100, 6);
+    expect(a.productAtTarget).toBeCloseTo(200 * 105 * 1.03, 6);
+    expect(a.rateToEmpty! * 105 * 1.03).toBeCloseTo(20000, 6);
+    // A machine that under-applies needs a higher setting.
+    const low = adviseRate({ surfaceAc: 100, appliedAc: 105, targetRate: 200, bias: -0.03 })!;
+    expect(low.rateForTarget).toBeGreaterThan(adviseRate({ surfaceAc: 100, appliedAc: 105, targetRate: 200 })!.rateForTarget);
+    const m = adviseMidField({ plannedAppliedAc: 105, appliedSoFarAc: 60, remaining: 9000, currentRate: 200, bias: 0.03 })!;
+    expect(m.rateToFinish * 45 * 1.03).toBeCloseTo(9000, 6);
+    expect(m.balance).toBeCloseTo(9000 - 200 * 1.03 * 45, 6);
   });
 
   it('acre constant', () => {

@@ -10,6 +10,17 @@ width and how you'll run the headlands, and it plans the field and tells you:
 - **The rate to set** so the product you loaded comes out even. It gives
   the percentage to cut back (stretch) or raise (use it all up).
 
+**Rate or density:** you can make the adjustment by changing the rate, or
+by changing the product density programmed into a dry controller. Density
+works backwards: programming a higher density than the product really has
+meters less product, so a 4.8% rate cut is the same as a 5.0% density
+increase. With density, the rate on the screen and in your as-applied records
+stays at the prescription.
+
+**Machine bias (shim):** each machine can carry a percent it typically runs
+off, such as a spreader that puts out 3% more than the monitor says. Every
+suggested rate or density, and the mid-field check, is corrected for it.
+
 A **Mid-field check** takes what the monitor and bin show partway through
 and tells you the rate that finishes the field empty.
 

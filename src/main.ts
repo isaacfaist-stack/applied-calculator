@@ -6,7 +6,7 @@ import { registerSW } from 'virtual:pwa-register';
 import { M_PER_FT, SQ_M_PER_ACRE, ringArea } from './engine/geometry';
 import { makeProjection } from './engine/projection';
 import type { CornerStyle, ShutoffMode } from './engine/plan';
-import { adviseMidField, adviseRate } from './engine/rate';
+import { actualRateAt, adviseMidField, adviseRate, densityFor } from './engine/rate';
 import { type LocalField, distanceMiles, geometryCenter, geometryRings, pointInGeometry, toLocalField } from './fieldModel';
 import { fetchRemoteBoundary, listRemoteFields } from './integrations/boundaryServer';
 import { type BoundaryGeometry, importFiles } from './io/import';
@@ -77,6 +77,8 @@ let local: LocalField | null = null;
 let result: PlanResponse | null = null;
 let gps: [number, number] | null = null;
 let showCoverage = true;
+/** Density the app last told the operator to program (density mode). */
+let recommendedDensity: number | undefined;
 
 type EditMode = 'new' | 'edit' | 'hole';
 let editSession: { mode: EditMode; fieldId?: string; editor: PolygonEditor } | null = null;
@@ -89,6 +91,11 @@ const plan = {
 
 function activeMachine(): MachineRecord {
   return machines.find((m) => m.id === settings.activeMachineId) ?? machines[0] ?? DEFAULT_MACHINES[0];
+}
+
+/** Active machine's bias as a fraction (+0.03 = puts out 3% more). */
+function machineBias(): number {
+  return (activeMachine().biasPct ?? 0) / 100;
 }
 
 function saveSettings() {
@@ -395,39 +402,78 @@ function renderResults() {
   const unit = settings.product.unit;
   const rate = settings.product.rate;
   const loaded = settings.product.loaded;
-  const a = adviseRate({ surfaceAc, appliedAc, targetRate: rate, loaded });
+  const bias = machineBias();
+  const a = adviseRate({ surfaceAc, appliedAc, targetRate: rate, loaded, bias });
   const answerChange = $('answerChange');
   const kv = $('productKv');
-  if (!a) {
+  const byDensity = settings.product.adjustBy === 'density';
+  const density = settings.product.density;
+  $('answerLabel').textContent = byDensity ? 'Set controller density to' : 'Set controller rate to';
+  recommendedDensity = undefined;
+  const blank = (msg: string) => {
     $('answerRate').textContent = '–';
     $('answerUnit').textContent = '';
-    answerChange.textContent = 'Enter a target rate';
+    answerChange.textContent = msg;
     answerChange.className = 'answer-change';
     $('answerSub').textContent = '';
+  };
+  if (!a) {
+    blank('Enter a target rate');
     kv.innerHTML = '';
   } else {
     const useLoad = a.rateToEmpty !== undefined;
+    // The rate the controller effectively has to meter at.
     const setRate = useLoad ? a.rateToEmpty! : a.rateForTarget;
     const change = useLoad ? a.rateToEmptyChangePct! : a.rateChangePct;
-    $('answerRate').textContent = fmt(setRate, setRate >= 100 ? 1 : 2);
-    $('answerUnit').textContent = `${unit}/ac`;
-    const dir = change < -0.0005 ? 'down' : change > 0.0005 ? 'up' : '';
-    answerChange.className = `answer-change ${dir}`;
-    answerChange.textContent =
-      dir === 'down'
-        ? `${fmtPct(change)} — cut back to stretch`
-        : dir === 'up'
-          ? `${fmtPct(change)} — raise to use it up`
-          : 'No change needed';
-    $('answerSub').textContent = useLoad
+    const why = useLoad
       ? `Empties the ${fmtQty(loaded!, unit)} load across ${fmt(appliedAc)} applied ac. Ground gets ${fmt(a.groundRateIfEmptied!, 1)} ${unit}/ac.`
       : `Lays down ${fmt(rate, rate >= 100 ? 0 : 1)} ${unit}/ac on the ${fmt(surfaceAc)} surface ac, including overlap.`;
+    if (!byDensity) {
+      $('answerRate').textContent = fmt(setRate, setRate >= 100 ? 1 : 2);
+      $('answerUnit').textContent = `${unit}/ac`;
+      const dir = change < -0.0005 ? 'down' : change > 0.0005 ? 'up' : '';
+      answerChange.className = `answer-change ${dir}`;
+      answerChange.textContent =
+        dir === 'down'
+          ? `${fmtPct(change)} — cut back to stretch`
+          : dir === 'up'
+            ? `${fmtPct(change)} — raise to use it up`
+            : 'No change needed';
+      $('answerSub').textContent = why;
+    } else if (!(density && density > 0)) {
+      blank('Enter the product density');
+    } else {
+      const prog = densityFor(density, rate, setRate);
+      recommendedDensity = prog;
+      const dChange = prog / density - 1;
+      $('answerRate').textContent = fmt(prog, 1);
+      $('answerUnit').textContent = 'lb/ft³';
+      // Density works backwards: more density = less product.
+      const dir = dChange > 0.0005 ? 'down' : dChange < -0.0005 ? 'up' : '';
+      answerChange.className = `answer-change ${dir}`;
+      answerChange.textContent =
+        dir === 'down'
+          ? `${fmtPct(dChange)} — raise density to stretch`
+          : dir === 'up'
+            ? `${fmtPct(dChange)} — lower density to use it up`
+            : 'No change needed';
+      $('answerSub').textContent = `Leave the rate at ${fmt(rate, rate >= 100 ? 0 : 1)} ${unit}/ac. ${why}`;
+    }
 
     const rows: [string, string, string?][] = [
       ['Needed at target (surface ac)', fmtQty(a.productNeeded, unit), 'strong'],
       ['Used if rate is left at target', fmtQty(a.productAtTarget, unit)],
-      ['Extra from overlap', fmtQty(a.productAtTarget - a.productNeeded, unit)],
+      [bias ? 'Extra from overlap + machine bias' : 'Extra from overlap', fmtQty(a.productAtTarget - a.productNeeded, unit)],
     ];
+    if (bias) {
+      rows.push([
+        `Machine bias (${activeMachine().name})`,
+        `${fmt(Math.abs(bias) * 100, 1)}% ${bias > 0 ? 'more' : 'less'} than monitor`,
+      ]);
+    }
+    if (byDensity && recommendedDensity) {
+      rows.push(['Same as a rate change of', fmtPct(useLoad ? a.rateToEmptyChangePct! : a.rateChangePct)]);
+    }
     if (a.loadBalance !== undefined) {
       const bal = a.loadBalance;
       rows.push([
@@ -466,6 +512,7 @@ function renderResults() {
     .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`)
     .join('');
 
+  syncAdjustUi();
   renderMidField();
 }
 
@@ -483,16 +530,44 @@ function renderMidField() {
     return;
   }
   const plannedAppliedAc = result.appliedM2 / SQ_M_PER_ACRE;
-  const m = adviseMidField({ plannedAppliedAc, appliedSoFarAc: applied, remaining: left, currentRate: settings.product.rate });
+  const displayRate = settings.product.rate;
+  const byDensity = settings.product.adjustBy === 'density';
+  const trueDensity = settings.product.density;
+  // In density mode, what's going on the ground depends on the density
+  // programmed now (the app's suggestion unless the operator says otherwise).
+  const progNow = num($('midDensityInput')) ?? recommendedDensity ?? trueDensity;
+  const densityReady = byDensity && !!trueDensity && !!progNow;
+  const actualNow = densityReady ? actualRateAt(trueDensity!, displayRate, progNow!) : displayRate;
+  const m = adviseMidField({
+    plannedAppliedAc,
+    appliedSoFarAc: applied,
+    remaining: left,
+    currentRate: actualNow,
+    bias: machineBias(),
+  });
   if (!m) {
     out.innerHTML = `<p class="muted small">Monitor already shows the planned ${fmt(plannedAppliedAc)} applied ac or more.</p>`;
+    return;
+  }
+  const balance = `<p class="muted small">At the current setting you'd ${m.balance < 0 ? 'run out' : 'have left over'} about ${fmtQty(Math.abs(m.balance), unit)}.</p>`;
+  if (byDensity && !trueDensity) {
+    out.innerHTML = '<p class="muted small">Enter the product density in the Product card.</p>';
+    return;
+  }
+  if (densityReady) {
+    const newDensity = densityFor(trueDensity!, displayRate, m.rateToFinish);
+    const ch = newDensity / progNow! - 1;
+    out.innerHTML = `
+      <div class="muted small">About ${fmt(m.remainingAc)} applied ac to go. Set density to</div>
+      <div class="big">${fmt(newDensity, 1)} <span class="answer-unit">lb/ft³</span></div>
+      <div class="answer-change ${ch > 0 ? 'down' : 'up'}">${fmtPct(ch)} vs. ${fmt(progNow!, 1)} now</div>
+      <p class="muted small">Leave the rate at ${fmt(displayRate, 1)} ${esc(unit)}/ac.</p>${balance}`;
     return;
   }
   out.innerHTML = `
     <div class="muted small">About ${fmt(m.remainingAc)} applied ac to go. Set rate to</div>
     <div class="big">${fmt(m.rateToFinish, m.rateToFinish >= 100 ? 1 : 2)} <span class="answer-unit">${esc(unit)}/ac</span></div>
-    <div class="answer-change ${m.changePct < 0 ? 'down' : 'up'}">${fmtPct(m.changePct)} vs. ${fmt(settings.product.rate, 1)}</div>
-    <p class="muted small">At the current rate you'd ${m.balance < 0 ? 'run out' : 'have left over'} about ${fmtQty(Math.abs(m.balance), unit)}.</p>`;
+    <div class="answer-change ${m.changePct < 0 ? 'down' : 'up'}">${fmtPct(m.changePct)} vs. ${fmt(displayRate, 1)}</div>${balance}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -903,6 +978,9 @@ function syncMachineUi() {
   ($('sectionsInput') as HTMLInputElement).value = String(m.sections);
   setSeg('shutoffSeg', m.shutoff);
   setSeg('cornerSeg', m.cornerStyle);
+  const bias = m.biasPct ?? 0;
+  setSeg('biasDirSeg', bias < 0 ? 'less' : 'more');
+  ($('biasInput') as HTMLInputElement).value = bias ? String(Math.abs(bias)) : '';
 }
 
 function syncControls() {
@@ -913,6 +991,8 @@ function syncControls() {
   ($('rateInput') as HTMLInputElement).value = p.rate ? String(p.rate) : '';
   ($('unitSelect') as HTMLSelectElement).value = p.unit;
   ($('loadedInput') as HTMLInputElement).value = p.loaded ? String(p.loaded) : '';
+  ($('densityInput') as HTMLInputElement).value = p.density ? String(p.density) : '';
+  syncAdjustUi();
   $('loadedUnit').textContent = p.unit;
   $('midLeftUnit').textContent = p.unit;
 }
@@ -955,6 +1035,24 @@ function updateMachine(patch: Partial<MachineRecord>) {
 }
 
 onSeg('shutoffSeg', (v) => updateMachine({ shutoff: v as ShutoffMode }));
+
+function biasChanged(dir?: string) {
+  const mag = Math.abs(num($('biasInput') as HTMLInputElement) ?? 0);
+  const current = $('biasDirSeg').querySelector<HTMLElement>('[aria-checked="true"]')?.dataset.v;
+  const d = dir ?? current ?? 'more';
+  if (mag > 50) {
+    toast('Bias over 50% looks like a typo; check the number.', true);
+    syncMachineUi();
+    return;
+  }
+  const m = activeMachine();
+  m.biasPct = d === 'less' ? -mag : mag;
+  store.saveMachines(machines);
+  setSeg('biasDirSeg', d);
+  renderResults();
+}
+onSeg('biasDirSeg', (v) => biasChanged(v));
+$('biasInput').addEventListener('input', () => biasChanged());
 onSeg('cornerSeg', (v) => updateMachine({ cornerStyle: v as CornerStyle }));
 
 $('machineSelect').addEventListener('change', (e) => {
@@ -1004,17 +1102,37 @@ $('deleteMachineBtn').addEventListener('click', () => {
   planChanged();
 });
 
+function syncAdjustUi() {
+  const byDensity = settings.product.adjustBy === 'density';
+  setSeg('adjustSeg', byDensity ? 'density' : 'rate');
+  $('densityBlock').hidden = !byDensity;
+  $('midDensityField').hidden = !byDensity;
+  ($('midDensityInput') as HTMLInputElement).placeholder = recommendedDensity
+    ? `${fmt(recommendedDensity, 1)} (suggested above)`
+    : '';
+}
+
 function productChanged() {
   settings.product = {
     rate: num($('rateInput') as HTMLInputElement) ?? 0,
     unit: ($('unitSelect') as HTMLSelectElement).value,
     loaded: num($('loadedInput') as HTMLInputElement),
+    adjustBy: settings.product.adjustBy,
+    density: num($('densityInput') as HTMLInputElement),
   };
   $('loadedUnit').textContent = settings.product.unit;
   $('midLeftUnit').textContent = settings.product.unit;
   saveSettings();
   renderResults();
 }
+onSeg('adjustSeg', (v) => {
+  settings.product.adjustBy = v as 'rate' | 'density';
+  saveSettings();
+  syncAdjustUi();
+  renderResults();
+});
+$('densityInput').addEventListener('input', productChanged);
+$('midDensityInput').addEventListener('input', renderMidField);
 $('rateInput').addEventListener('input', productChanged);
 $('unitSelect').addEventListener('change', productChanged);
 $('loadedInput').addEventListener('input', productChanged);

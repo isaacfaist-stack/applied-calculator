@@ -32,12 +32,21 @@ export interface MachineRecord {
   shutoff: ShutoffMode;
   cornerStyle: CornerStyle;
   defaultHeadlandLaps: number;
+  /**
+   * Machine bias in percent: actual product out vs. what the monitor
+   * reports. +3 = puts out 3% more than it shows.
+   */
+  biasPct?: number;
 }
 
 export interface ProductSettings {
   rate: number;
   unit: string;
   loaded?: number;
+  /** How to make the adjustment on the controller. */
+  adjustBy?: 'rate' | 'density';
+  /** True product density (lb/ft³) from the ticket or a density cup. */
+  density?: number;
 }
 
 export type Imagery = 'google-satellite' | 'google-hybrid' | 'esri';

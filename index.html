@@ -43,7 +43,7 @@
               <div><span class="k">Overlap</span><span class="v" id="overlapPct">–</span><span class="u"></span></div>
             </div>
             <div class="answer" id="answer">
-              <div class="answer-label">Set controller to</div>
+              <div class="answer-label" id="answerLabel">Set controller rate to</div>
               <div class="answer-rate"><span id="answerRate">–</span> <span class="answer-unit" id="answerUnit"></span></div>
               <div class="answer-change" id="answerChange">–</div>
             </div>
@@ -77,6 +77,26 @@
                 <span class="suffix" id="loadedUnit">lb</span>
               </div>
             </label>
+          </div>
+          <div class="ctl col">
+            <span class="ctl-label">Adjust with</span>
+            <div class="seg" id="adjustSeg" role="radiogroup">
+              <button type="button" data-v="rate">Rate</button>
+              <button type="button" data-v="density">Density</button>
+            </div>
+          </div>
+          <div id="densityBlock" hidden>
+            <label class="field">
+              <span>Product density — what it really weighs</span>
+              <div class="input-unit">
+                <input id="densityInput" type="number" inputmode="decimal" min="1" step="any" placeholder="e.g. 62" />
+                <span class="suffix">lb/ft³</span>
+              </div>
+            </label>
+            <p class="muted small">
+              From the plant's ticket or a density cup. The app tells you what density to program instead, so the rate on
+              the screen and in your as-applied records stays at the prescription.
+            </p>
           </div>
           <dl class="kv" id="productKv"></dl>
         </div>
@@ -143,6 +163,21 @@
               </div>
             </label>
           </div>
+          <div class="ctl col">
+            <span class="ctl-label">Machine bias (shim) — what this machine really puts out vs. the monitor</span>
+            <div class="seg" id="biasDirSeg" role="radiogroup">
+              <button type="button" data-v="more">Puts out more</button>
+              <button type="button" data-v="less">Puts out less</button>
+            </div>
+            <div class="input-unit">
+              <input id="biasInput" type="number" inputmode="decimal" min="0" max="50" step="any" placeholder="0" />
+              <span class="suffix">%</span>
+            </div>
+            <p class="muted small" id="biasNote">
+              From experience or a catch test. For example, if the monitor says 10,000 lb went out but 10,300 lb left the
+              bin, pick "Puts out more" and enter 3.
+            </p>
+          </div>
           <div class="row gap wrap">
             <button class="btn" type="button" id="addMachineBtn">Add machine</button>
             <button class="btn" type="button" id="renameMachineBtn">Rename</button>
@@ -189,6 +224,13 @@
               </div>
             </label>
           </div>
+          <label class="field" id="midDensityField" hidden>
+            <span>Density programmed now <em>(optional)</em></span>
+            <div class="input-unit">
+              <input id="midDensityInput" type="number" inputmode="decimal" min="1" step="any" />
+              <span class="suffix">lb/ft³</span>
+            </div>
+          </label>
           <div class="mid-answer" id="midAnswer"></div>
         </details>
 
