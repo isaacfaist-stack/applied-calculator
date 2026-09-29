@@ -11,7 +11,13 @@ import { type LocalField, distanceMiles, geometryCenter, geometryRings, pointInG
 import { fetchRemoteBoundary, listRemoteFields } from './integrations/boundaryServer';
 import { type BoundaryGeometry, importFiles } from './io/import';
 import { PolygonEditor } from './map/editor';
-import { clearGoogleSession, createGoogleLayer } from './map/googleTiles';
+import {
+  GoogleMapsError,
+  clearGoogleSession,
+  createGoogleLayer,
+  explainGoogleError,
+  testGoogleKey,
+} from './map/googleTiles';
 import type { PlanRequest, PlanResponse } from './planWorker';
 import { type FieldRecord, type Imagery, type MachineRecord, type Settings, DEFAULT_MACHINES, store, uid } from './store';
 
@@ -147,7 +153,8 @@ async function setBaseLayer() {
     try {
       next = await createGoogleLayer(map, googleKey(), kind === 'google-hybrid' ? 'hybrid' : 'satellite');
     } catch (err) {
-      toast(`${(err as Error).message}. Showing Esri imagery instead.`, true);
+      const raw = err instanceof GoogleMapsError ? err.googleMessage : (err as Error).message;
+      toast(`Google imagery isn't available: ${explainGoogleError(raw)} Showing Esri imagery. (Settings → Test Google imagery for details.)`, true);
       next = esriImagery;
     }
   }
@@ -160,7 +167,7 @@ async function setBaseLayer() {
     next.on('tileerror', () => {
       if (++errors === 8 && navigator.onLine) {
         clearGoogleSession();
-        toast('Google imagery is not loading. Check the API key in Settings.', true);
+        toast('Google imagery is not loading. Open Settings → Test Google imagery to see why.', true);
       }
     });
   }
@@ -1028,6 +1035,7 @@ $('settingsBtn').addEventListener('click', () => {
   setSeg('themeSeg', settings.theme);
   setSeg('imagerySeg', settings.imagery ?? 'google-satellite');
   ($('googleKey') as HTMLInputElement).value = settings.googleKey ?? '';
+  $('googleTestResult').hidden = true;
   ($('googleKey') as HTMLInputElement).placeholder = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
     ? 'Using the key built into this app'
     : 'AIza…';
@@ -1055,6 +1063,25 @@ $('saveGoogleBtn').addEventListener('click', () => {
         : 'Saved. Google imagery will load when you have signal.'
       : `Showing ${IMAGERY_NAMES[shown]}`,
   );
+});
+
+$('testGoogleBtn').addEventListener('click', async () => {
+  const out = $('googleTestResult');
+  const typed = ($('googleKey') as HTMLInputElement).value.trim();
+  const key = typed || (import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '').trim();
+  out.hidden = false;
+  out.className = 'test-result';
+  out.textContent = 'Testing…';
+  const r = await testGoogleKey(key);
+  out.className = `test-result ${r.ok ? 'ok' : 'bad'}`;
+  out.innerHTML =
+    `<strong>${r.ok ? '✓' : '✕'} ${esc(r.message)}</strong>` +
+    (r.detail && r.detail !== r.message ? `<div class="small muted">Google said: ${esc(r.detail)}</div>` : '') +
+    `<div class="small muted">Testing ${typed ? 'the key typed above' : 'the key built into the app'} from ${esc(location.origin)}</div>`;
+  if (r.ok) {
+    clearGoogleSession();
+    void setBaseLayer();
+  }
 });
 
 $('imageryBtn').addEventListener('click', () => {

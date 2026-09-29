@@ -44,5 +44,7 @@ Pick one:
   imagery.
 - The map shows the attribution Google returns for the area in view
   ("Google Maps · Imagery ©…"), as Google requires.
-- If Google imagery stops loading, the app says so. It usually means the key
-  was restricted to the wrong website, or the Map Tiles API isn't enabled.
+- If Google imagery doesn't show, open **⚙︎ Settings → Test Google imagery**.
+  It asks Google directly and says in plain words what to fix (website
+  restriction, Map Tiles API not enabled, billing, or a mistyped key), along
+  with Google's own error message.

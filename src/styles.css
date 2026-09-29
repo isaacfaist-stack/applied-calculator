@@ -947,3 +947,29 @@ dialog.sheet::backdrop {
   color: var(--muted);
   border: 0;
 }
+
+.test-result {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 4px;
+}
+
+.test-result.ok {
+  border-color: var(--good);
+}
+
+.test-result.ok strong {
+  color: var(--good);
+}
+
+.test-result.bad {
+  border-color: var(--danger);
+}
+
+.test-result.bad strong {
+  color: var(--danger);
+}
