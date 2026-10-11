@@ -72,9 +72,52 @@ function onSeg(id: string, fn: (v: string) => void) {
 let settings: Settings = store.settings();
 let fields: FieldRecord[] = store.fields();
 let machines: MachineRecord[] = store.machines();
+/** First selected field; single-field tools (edit, rename) act on it. */
 let activeField: FieldRecord | null = null;
-let local: LocalField | null = null;
-let result: PlanResponse | null = null;
+
+/** One selected field, its local geometry, and its plan once computed. */
+interface PlanEntry {
+  field: FieldRecord;
+  local: LocalField;
+  result: PlanResponse | null;
+}
+/** Selected fields. Several are planned separately and totaled as one job. */
+let entries: PlanEntry[] = [];
+
+/** Sums over every selected field's plan; null until all are planned. */
+interface PlanTotals {
+  surfaceM2: number;
+  appliedM2: number;
+  headlandAppliedM2: number;
+  passAppliedM2: number;
+  passCount: number;
+  onDistanceM: number;
+  coverage: { singleM2: number; overlapAreaM2: number; overlapExtraM2: number; skipM2: number; offFieldM2: number };
+}
+let result: PlanTotals | null = null;
+
+function computeTotals(): PlanTotals | null {
+  if (!entries.length || entries.some((e) => !e.result)) return null;
+  const t: PlanTotals = {
+    surfaceM2: 0,
+    appliedM2: 0,
+    headlandAppliedM2: 0,
+    passAppliedM2: 0,
+    passCount: 0,
+    onDistanceM: 0,
+    coverage: { singleM2: 0, overlapAreaM2: 0, overlapExtraM2: 0, skipM2: 0, offFieldM2: 0 },
+  };
+  for (const { result: r } of entries) {
+    t.surfaceM2 += r!.surfaceM2;
+    t.appliedM2 += r!.appliedM2;
+    t.headlandAppliedM2 += r!.headlandAppliedM2;
+    t.passAppliedM2 += r!.passAppliedM2;
+    t.passCount += r!.passCount;
+    t.onDistanceM += r!.onDistanceM;
+    for (const k of Object.keys(t.coverage) as (keyof PlanTotals['coverage'])[]) t.coverage[k] += r!.coverage[k];
+  }
+  return t;
+}
 let gps: [number, number] | null = null;
 let showCoverage = true;
 /** Density the app last told the operator to program (density mode). */
@@ -103,14 +146,17 @@ function saveSettings() {
 }
 
 function saveFieldPrefs() {
-  if (!activeField) return;
-  activeField.prefs = {
-    machineId: activeMachine().id,
-    headlandLaps: plan.laps,
-    headingDeg: plan.headingDeg,
-    headingMode: plan.headingMode,
-  };
-  store.upsertField(activeField);
+  if (!entries.length) return;
+  for (const { field } of entries) {
+    field.prefs = {
+      machineId: activeMachine().id,
+      headlandLaps: plan.laps,
+      // A combined job's heading is per field, so only a manual one is shared.
+      headingDeg: entries.length === 1 || plan.headingMode === 'manual' ? plan.headingDeg : field.prefs?.headingDeg,
+      headingMode: plan.headingMode,
+    };
+  }
+  store.saveFields(fields);
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +237,6 @@ const layers = {
   lines: L.layerGroup().addTo(map),
   gps: L.layerGroup().addTo(map),
 };
-let coverageUrl = '';
 
 function toLatLng([lon, lat]: [number, number]): L.LatLngExpression {
   return [lat, lon];
@@ -206,8 +251,9 @@ function drawBoundary() {
   layers.boundary.clearLayers();
   layers.fields.clearLayers();
   const editing = !!editSession;
+  const selected = new Set(entries.map((e) => e.field.id));
   for (const f of fields) {
-    if (f.id === activeField?.id) continue;
+    if (selected.has(f.id)) continue;
     const poly = L.polygon(fieldLatLngs(f), {
       color: '#fde047',
       weight: 2,
@@ -222,10 +268,14 @@ function drawBoundary() {
     });
     poly.addTo(layers.fields);
   }
-  if (!activeField || editSession?.fieldId === activeField.id) return;
-  L.polygon(fieldLatLngs(activeField), { color: '#ffffff', weight: 3, fill: false, interactive: false }).addTo(
-    layers.boundary,
-  );
+  for (const { field } of entries) {
+    if (editSession?.fieldId === field.id) continue;
+    const poly = L.polygon(fieldLatLngs(field), { color: '#ffffff', weight: 3, fill: false, interactive: false });
+    if (entries.length > 1) {
+      poly.bindTooltip(esc(field.name), { direction: 'center', className: 'field-label', permanent: map.getZoom() >= 14 });
+    }
+    poly.addTo(layers.boundary);
+  }
 }
 
 // Field names are shown permanently only when zoomed in enough to read them.
@@ -239,51 +289,58 @@ map.on('zoomend', () => {
 });
 
 function fitField() {
-  if (!activeField) return;
-  const pts = geometryRings(activeField.geometry).flatMap((p) => p[0].map(toLatLng));
+  if (!entries.length) return;
+  const pts = entries.flatMap(({ field }) => geometryRings(field.geometry).flatMap((p) => p[0].map(toLatLng)));
   map.fitBounds(L.latLngBounds(pts as L.LatLngTuple[]), { padding: [24, 24] });
 }
+
+let coverageUrls: string[] = [];
+let drawGeneration = 0;
 
 function drawPlanLayers() {
   layers.coverage.clearLayers();
   layers.lines.clearLayers();
-  if (coverageUrl) URL.revokeObjectURL(coverageUrl);
-  coverageUrl = '';
-  if (!result || !local) return;
-  const proj = local.proj;
-  const ll = (x: number, y: number) => toLatLng(proj.toLonLat({ x, y }));
+  for (const u of coverageUrls) URL.revokeObjectURL(u);
+  coverageUrls = [];
+  const gen = ++drawGeneration;
+  if (!result) return;
+  for (const { local, result: r } of entries) {
+    if (!r) continue;
+    const proj = local.proj;
+    const ll = (x: number, y: number) => toLatLng(proj.toLonLat({ x, y }));
 
-  if (showCoverage) {
-    const c = result.coverage;
-    const canvas = document.createElement('canvas');
-    canvas.width = c.cols;
-    canvas.height = c.rows;
-    const ctx = canvas.getContext('2d')!;
-    ctx.putImageData(new ImageData(new Uint8ClampedArray(c.rgba), c.cols, c.rows), 0, 0);
-    const bounds = L.latLngBounds([
-      ll(c.minX, c.minY) as L.LatLngTuple,
-      ll(c.minX + c.cols * c.cell, c.minY + c.rows * c.cell) as L.LatLngTuple,
-    ]);
-    const forId = result.id;
-    canvas.toBlob((blob) => {
-      if (!blob || !result || result.id !== forId || !showCoverage) return;
-      coverageUrl = URL.createObjectURL(blob);
-      L.imageOverlay(coverageUrl, bounds, { opacity: 0.85, interactive: false }).addTo(layers.coverage);
-    });
+    if (showCoverage) {
+      const c = r.coverage;
+      const canvas = document.createElement('canvas');
+      canvas.width = c.cols;
+      canvas.height = c.rows;
+      const ctx = canvas.getContext('2d')!;
+      ctx.putImageData(new ImageData(new Uint8ClampedArray(c.rgba), c.cols, c.rows), 0, 0);
+      const bounds = L.latLngBounds([
+        ll(c.minX, c.minY) as L.LatLngTuple,
+        ll(c.minX + c.cols * c.cell, c.minY + c.rows * c.cell) as L.LatLngTuple,
+      ]);
+      canvas.toBlob((blob) => {
+        if (!blob || gen !== drawGeneration || !showCoverage) return;
+        const url = URL.createObjectURL(blob);
+        coverageUrls.push(url);
+        L.imageOverlay(url, bounds, { opacity: 0.85, interactive: false }).addTo(layers.coverage);
+      });
+    }
+
+    const headland = r.headlandPaths.map((ring) => [...ring, ring[0]].map((p) => ll(p.x, p.y)));
+    L.polyline(headland as L.LatLngExpression[][], { color: '#fde047', weight: 1.5, opacity: 0.9, interactive: false }).addTo(
+      layers.lines,
+    );
+    const passes = r.passLines.map(([pa, pb]) => [ll(pa.x, pa.y), ll(pb.x, pb.y)]);
+    L.polyline(passes as L.LatLngExpression[][], {
+      color: '#ffffff',
+      weight: 1,
+      opacity: 0.75,
+      dashArray: '6 6',
+      interactive: false,
+    }).addTo(layers.lines);
   }
-
-  const headland = result.headlandPaths.map((r) => [...r, r[0]].map((p) => ll(p.x, p.y)));
-  L.polyline(headland as L.LatLngExpression[][], { color: '#fde047', weight: 1.5, opacity: 0.9, interactive: false }).addTo(
-    layers.lines,
-  );
-  const passes = result.passLines.map(([a, b]) => [ll(a.x, a.y), ll(b.x, b.y)]);
-  L.polyline(passes as L.LatLngExpression[][], {
-    color: '#ffffff',
-    weight: 1,
-    opacity: 0.75,
-    dashArray: '6 6',
-    interactive: false,
-  }).addTo(layers.lines);
   $('mapLegend').hidden = !showCoverage;
 }
 
@@ -328,7 +385,7 @@ function fieldAtGps(): FieldRecord | undefined {
 function updateGpsChip() {
   const chip = $('gpsChip');
   const here = fieldAtGps();
-  if (here && here.id !== activeField?.id) {
+  if (here && !entries.some((e) => e.field.id === here.id)) {
     chip.innerHTML = `You're in <b>${esc(here.name)}</b><button type="button" id="gpsOpen">Open</button>`;
     chip.hidden = false;
     $('gpsOpen').onclick = () => selectField(here.id);
@@ -343,43 +400,55 @@ function updateGpsChip() {
 const worker = new Worker(new URL('./planWorker.ts', import.meta.url), { type: 'module' });
 let reqId = 0;
 let planTimer = 0;
+/** Outstanding requests of the current batch: request id → entry index. */
+let pending = new Map<number, number>();
 
 worker.onmessage = (e: MessageEvent<PlanResponse>) => {
   const r = e.data;
-  if (r.id !== reqId) return; // stale
-  $('computing').hidden = true;
+  const idx = pending.get(r.id);
+  if (idx === undefined) return; // stale
+  pending.delete(r.id);
+  const entry = entries[idx];
   if (r.error) {
-    toast(`Couldn't plan this field: ${r.error}`, true);
-    return;
+    toast(`Couldn't plan ${entry?.field.name ?? 'this field'}: ${r.error}`, true);
+  } else if (entry) {
+    entry.result = r;
   }
-  result = r;
-  if (plan.headingMode !== 'manual') {
-    plan.headingDeg = r.headingDeg;
-    syncHeadingUi();
+  if (pending.size) return;
+  $('computing').hidden = true;
+  result = computeTotals();
+  if (plan.headingMode !== 'manual' && entries.length === 1 && entries[0].result) {
+    plan.headingDeg = entries[0].result.headingDeg;
   }
+  syncHeadingUi();
   drawPlanLayers();
   renderResults();
 };
 
 function schedulePlan() {
   clearTimeout(planTimer);
-  if (!local || !activeField) return;
+  if (!entries.length) return;
   $('computing').hidden = false;
   planTimer = window.setTimeout(() => {
     const m = activeMachine();
-    const req: PlanRequest = {
-      id: ++reqId,
-      fieldKey: activeField!.id + ':' + activeField!.updatedAt,
-      polys: local!.polys,
-      widthM: m.widthFt * M_PER_FT,
-      sections: m.sections,
-      headlandLaps: plan.laps,
-      cornerStyle: m.cornerStyle,
-      shutoff: m.shutoff,
-      headingMode: plan.headingMode,
-      headingDeg: plan.headingDeg,
-    };
-    worker.postMessage(req);
+    pending = new Map();
+    entries.forEach((entry, i) => {
+      const id = ++reqId;
+      pending.set(id, i);
+      const req: PlanRequest = {
+        id,
+        fieldKey: entry.field.id + ':' + entry.field.updatedAt,
+        polys: entry.local.polys,
+        widthM: m.widthFt * M_PER_FT,
+        sections: m.sections,
+        headlandLaps: plan.laps,
+        cornerStyle: m.cornerStyle,
+        shutoff: m.shutoff,
+        headingMode: plan.headingMode,
+        headingDeg: plan.headingDeg,
+      };
+      worker.postMessage(req);
+    });
   }, 120);
 }
 
@@ -387,11 +456,11 @@ function schedulePlan() {
 // Results
 
 function renderResults() {
-  const has = !!(result && activeField);
+  const has = !!(result && entries.length);
   $('heroEmpty').hidden = has;
   $('heroBody').hidden = !has;
   $('breakdownCard').hidden = !has;
-  if (!result || !activeField) return;
+  if (!result || !entries.length) return;
 
   const surfaceAc = result.surfaceM2 / SQ_M_PER_ACRE;
   const appliedAc = result.appliedM2 / SQ_M_PER_ACRE;
@@ -511,10 +580,28 @@ function renderResults() {
     )
     .join('');
   const m = activeMachine();
+  const multi = entries.length > 1;
+  $('fieldBreakdown').hidden = !multi;
+  $('fieldBreakdown').innerHTML = multi
+    ? `<li class="fb-head"><span>Field</span><span>Surface</span><span>Applied</span><span>Overlap</span></li>` +
+      entries
+        .map(({ field, result: r }) => {
+          const sAc = r!.surfaceM2 / SQ_M_PER_ACRE;
+          const aAc = r!.appliedM2 / SQ_M_PER_ACRE;
+          return `<li><span>${esc(field.name)}</span><span>${fmt(sAc, 2)}</span><span>${fmt(aAc, 2)}</span><span>${fmtPct(aAc / sAc - 1)}</span></li>`;
+        })
+        .join('') +
+      `<li class="fb-total"><span>Total</span><span>${fmt(surfaceAc, 2)}</span><span>${fmt(appliedAc, 2)}</span><span>${fmtPct(appliedAc / surfaceAc - 1)}</span></li>`
+    : '';
   $('planKv').innerHTML = [
     ['Headland laps', `${plan.laps} × ${fmt(m.widthFt, 0)} ft`],
     ['Headland applied', acres(result.headlandAppliedM2)],
-    ['Passes', `${result.passCount} at ${fmt(result.headingDeg, 1)}°`],
+    [
+      'Passes',
+      multi
+        ? `${result.passCount} (${entries.map((e) => `${fmt(e.result!.headingDeg, 0)}°`).join(', ')})`
+        : `${result.passCount} at ${fmt(entries[0].result!.headingDeg, 1)}°`,
+    ],
     ['Pass applied', acres(result.passAppliedM2)],
     ['Distance with product on', `${fmt(result.onDistanceM / 1609.344, 2)} mi`],
   ]
@@ -583,15 +670,30 @@ function renderMidField() {
 // Field selection
 
 function selectField(id: string | null, opts: { keepView?: boolean } = {}) {
+  selectFields(id ? [id] : [], opts);
+}
+
+/** Selects one or more fields; several are planned and totaled as one job. */
+function selectFields(ids: string[], opts: { keepView?: boolean } = {}) {
   if (editSession) stopEdit();
-  activeField = id ? fields.find((f) => f.id === id) ?? null : null;
+  const picked = ids.map((id) => fields.find((f) => f.id === id)).filter((f): f is FieldRecord => !!f);
+  entries = [];
+  for (const f of picked) {
+    try {
+      entries.push({ field: f, local: toLocalField(f.geometry), result: null });
+    } catch (err) {
+      toast(`Boundary problem in ${f.name}: ${(err as Error).message}`, true);
+    }
+  }
+  activeField = entries[0]?.field ?? null;
   result = null;
-  local = null;
-  layers.coverage.clearLayers();
-  layers.lines.clearLayers();
+  pending = new Map();
+  drawPlanLayers();
   settings.lastFieldId = activeField?.id;
+  settings.lastFieldIds = entries.map((e) => e.field.id);
   saveSettings();
-  $('boundaryCard').hidden = !activeField;
+  // Boundary tools edit one field at a time.
+  $('boundaryCard').hidden = entries.length !== 1;
   if (!activeField) {
     $('fieldName').textContent = 'Choose a field';
     drawBoundary();
@@ -599,18 +701,13 @@ function selectField(id: string | null, opts: { keepView?: boolean } = {}) {
     updateGpsChip();
     return;
   }
-  const f = activeField;
-  $('fieldName').textContent = f.name;
-  const p = f.prefs ?? {};
+  $('fieldName').textContent =
+    entries.length === 1 ? activeField.name : `${entries.length} fields: ${entries.map((e) => e.field.name).join(' + ')}`;
+  const p = activeField.prefs ?? {};
   if (p.machineId && machines.some((m) => m.id === p.machineId)) settings.activeMachineId = p.machineId;
   plan.laps = p.headlandLaps ?? activeMachine().defaultHeadlandLaps;
   plan.headingMode = p.headingMode ?? 'longest';
   plan.headingDeg = p.headingDeg ?? 0;
-  try {
-    local = toLocalField(f.geometry);
-  } catch (err) {
-    toast(`Boundary problem: ${(err as Error).message}`, true);
-  }
   syncControls();
   drawBoundary();
   if (!opts.keepView) fitField();
@@ -640,6 +737,45 @@ function cachedMeta(f: FieldRecord): string {
   return acresCache.get(key)!;
 }
 
+/** "Select several" mode in the Fields sheet. */
+let multiMode = false;
+const multiChecked = new Set<string>();
+
+function setMultiMode(on: boolean) {
+  multiMode = on;
+  multiChecked.clear();
+  if (on) for (const e of entries) multiChecked.add(e.field.id);
+  $('multiBtn').hidden = on;
+  $('multiHint').hidden = !on;
+  $('multiBar').hidden = !on;
+  updateMultiBar();
+  renderFieldList();
+}
+
+function updateMultiBar() {
+  const n = multiChecked.size;
+  let acres = 0;
+  for (const id of multiChecked) {
+    const f = fields.find((x) => x.id === id);
+    try {
+      if (f) acres += toLocalField(f.geometry).acres;
+    } catch {
+      /* skip bad geometry */
+    }
+  }
+  $('multiCount').textContent = n ? `${n} selected · ${fmt(acres, 2)} ac` : 'None selected';
+  ($('multiGo') as HTMLButtonElement).disabled = n === 0;
+  $('multiGo').textContent = n > 1 ? `Plan ${n} together` : 'Plan';
+}
+
+$('multiBtn').addEventListener('click', () => setMultiMode(true));
+$('multiCancel').addEventListener('click', () => setMultiMode(false));
+$('multiGo').addEventListener('click', () => {
+  const ids = [...multiChecked];
+  setMultiMode(false);
+  selectFields(ids);
+});
+
 function renderFieldList() {
   const q = ($('fieldSearch') as HTMLInputElement).value.trim().toLowerCase();
   const here = fieldAtGps();
@@ -660,12 +796,13 @@ function renderFieldList() {
   }
   ul.innerHTML = list
     .map(
-      (f) => `<li>
-        <button type="button" class="pick" data-id="${f.id}">
+      (f) => `<li class="${multiMode && multiChecked.has(f.id) ? 'checked' : ''}">
+        ${multiMode ? `<span class="check" aria-hidden="true">${multiChecked.has(f.id) ? '✓' : ''}</span>` : ''}
+        <button type="button" class="pick" data-id="${f.id}" ${multiMode ? `role="checkbox" aria-checked="${multiChecked.has(f.id)}"` : ''}>
           <span class="name">${esc(f.name)}${here?.id === f.id ? ' <span class="here">• you are here</span>' : ''}</span>
           <span class="meta">${esc(cachedMeta(f))}</span>
         </button>
-        <button type="button" class="del" data-del="${f.id}" aria-label="Delete ${esc(f.name)}">🗑</button>
+        ${multiMode ? '' : `<button type="button" class="del" data-del="${f.id}" aria-label="Delete ${esc(f.name)}">🗑</button>`}
       </li>`,
     )
     .join('');
@@ -680,10 +817,17 @@ $('fieldList').addEventListener('click', (e) => {
     if (f && confirm(`Delete "${f.name}" from this iPad?`)) {
       store.deleteField(f.id);
       fields = store.fields();
-      if (activeField?.id === f.id) selectField(null);
-      else drawBoundary();
+      if (entries.some((e) => e.field.id === f.id)) {
+        selectFields(entries.map((e) => e.field.id).filter((id) => id !== f.id));
+      } else drawBoundary();
       renderFieldList();
     }
+  } else if (pick && multiMode) {
+    const id = pick.dataset.id!;
+    if (multiChecked.has(id)) multiChecked.delete(id);
+    else multiChecked.add(id);
+    updateMultiBar();
+    renderFieldList();
   } else if (pick) {
     selectField(pick.dataset.id!);
   }
@@ -704,7 +848,7 @@ for (const d of document.querySelectorAll<HTMLDialogElement>('dialog')) {
 }
 
 function openFields() {
-  renderFieldList();
+  setMultiMode(false);
   $('syncBtn').hidden = !settings.boundaryServer?.url;
   openSheet('fieldsSheet');
 }
@@ -975,7 +1119,10 @@ function syncHeadingUi() {
   setSeg('headingSeg', plan.headingMode);
   const range = $('headingRange') as HTMLInputElement;
   range.value = String(Math.round(plan.headingDeg));
-  $('headingOut').textContent = `${fmt(plan.headingDeg, plan.headingMode === 'optimized' ? 1 : 0)}°`;
+  $('headingOut').textContent =
+    entries.length > 1 && plan.headingMode !== 'manual'
+      ? 'each field'
+      : `${fmt(plan.headingDeg, plan.headingMode === 'optimized' ? 1 : 0)}°`;
 }
 
 function syncMachineUi() {
@@ -1273,7 +1420,10 @@ applyTheme();
 void setBaseLayer();
 syncControls();
 $('layersBtn').setAttribute('aria-pressed', 'true');
-if (settings.lastFieldId && fields.some((f) => f.id === settings.lastFieldId)) selectField(settings.lastFieldId);
+const lastIds = (settings.lastFieldIds ?? (settings.lastFieldId ? [settings.lastFieldId] : [])).filter((id) =>
+  fields.some((f) => f.id === id),
+);
+if (lastIds.length) selectFields(lastIds);
 else {
   renderResults();
   drawBoundary();

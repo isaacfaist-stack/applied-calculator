@@ -57,6 +57,8 @@ export type Imagery = 'google-satellite' | 'google-hybrid' | 'esri';
 export interface Settings {
   activeMachineId?: string;
   lastFieldId?: string;
+  /** All fields selected last time (several = one combined job). */
+  lastFieldIds?: string[];
   product: ProductSettings;
   theme: 'auto' | 'light' | 'dark';
   boundaryServer?: { url: string; token: string };

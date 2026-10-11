@@ -46,17 +46,20 @@ export interface PlanResponse {
   };
 }
 
-let cacheKey = '';
-let cached: PreparedField | null = null;
+// Several fields can be planned together, so keep a few prepared fields.
+const prepared = new Map<string, PreparedField>();
+const MAX_PREPARED = 12;
 const optimized = new Map<string, number>();
 
 self.onmessage = (e: MessageEvent<PlanRequest>) => {
   const r = e.data;
   try {
     const key = [r.fieldKey, r.widthM, r.sections, r.headlandLaps, r.cornerStyle].join('|');
-    if (key !== cacheKey || !cached) {
+    let cached = prepared.get(key);
+    if (!cached) {
       cached = prepareField(r.polys, { widthM: r.widthM, sections: r.sections }, r.headlandLaps, r.cornerStyle);
-      cacheKey = key;
+      prepared.set(key, cached);
+      if (prepared.size > MAX_PREPARED) prepared.delete(prepared.keys().next().value!);
     }
     let heading = r.headingDeg;
     if (r.headingMode === 'longest') {
@@ -64,7 +67,7 @@ self.onmessage = (e: MessageEvent<PlanRequest>) => {
       heading = longestEdgeHeading(main.outer);
     } else if (r.headingMode === 'optimized') {
       const okey = key + '|' + r.shutoff;
-      if (!optimized.has(okey)) optimized.set(okey, optimizeHeading(cached, r.shutoff).headingDeg);
+      if (!optimized.has(okey)) optimized.set(okey, optimizeHeading(cached!, r.shutoff).headingDeg);
       heading = optimized.get(okey)!;
     }
     const res = planWithPrepared(cached, { headingDeg: heading, shutoff: r.shutoff });

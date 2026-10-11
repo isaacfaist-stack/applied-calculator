@@ -21,6 +21,12 @@ stays at the prescription.
 off, such as a spreader that puts out 3% more than the monitor says. Every
 suggested rate or density, and the mid-field check, is corrected for it.
 
+**Several fields on one ticket:** in the Field list, tap **Select several**,
+tick the fields, and tap **Plan together**. Each field is still planned on its
+own (its own headlands and pass direction), and the app totals them into
+one surface/applied figure and one rate or density for the whole load, with
+a per-field breakdown.
+
 A **Mid-field check** takes what the monitor and bin show partway through
 and tells you the rate that finishes the field empty.
 

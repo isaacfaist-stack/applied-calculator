@@ -71,12 +71,12 @@
               </div>
             </label>
             <label class="field">
-              <span>Product given for this field <em>(optional)</em></span>
+              <span>Product given for this job <em>(optional)</em></span>
               <div class="input-unit">
                 <input id="loadedInput" type="number" inputmode="decimal" min="0" step="any" placeholder="e.g. 24000" />
                 <select id="loadedAsSelect" aria-label="Product given as">
                   <option value="product" id="loadedUnitOpt">lb</option>
-                  <option value="acres">acres' worth</option>
+                  <option value="acres">ac worth</option>
                 </select>
               </div>
             </label>
@@ -191,6 +191,7 @@
         <!-- Breakdown -->
         <div class="card" id="breakdownCard" hidden>
           <h2>Where the product goes</h2>
+          <ul class="field-breakdown" id="fieldBreakdown" hidden></ul>
           <ul class="legend" id="legend"></ul>
           <dl class="kv" id="planKv"></dl>
         </div>
@@ -283,9 +284,21 @@
         </label>
         <button class="btn" type="button" id="drawBtn">Draw on map</button>
         <button class="btn" type="button" id="syncBtn" hidden>Agvance fields</button>
+        <button class="btn" type="button" id="multiBtn">Select several</button>
       </div>
+      <p class="muted small" id="multiHint" hidden>
+        Tick every field on the same ticket or load. Each field is planned separately, then the app totals them into one
+        rate.
+      </p>
       <input class="search" id="fieldSearch" type="search" placeholder="Search fields, growers, farms" />
       <ul class="field-list" id="fieldList"></ul>
+      <div class="multi-bar" id="multiBar" hidden>
+        <span id="multiCount">0 selected</span>
+        <div class="row gap">
+          <button class="btn" type="button" id="multiCancel">Cancel</button>
+          <button class="btn primary" type="button" id="multiGo">Plan together</button>
+        </div>
+      </div>
     </dialog>
 
     <!-- Remote (Agvance) sheet -->
