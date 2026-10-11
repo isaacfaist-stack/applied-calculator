@@ -71,10 +71,13 @@
               </div>
             </label>
             <label class="field">
-              <span>Loaded for this field <em>(optional)</em></span>
+              <span>Product given for this field <em>(optional)</em></span>
               <div class="input-unit">
                 <input id="loadedInput" type="number" inputmode="decimal" min="0" step="any" placeholder="e.g. 24000" />
-                <span class="suffix" id="loadedUnit">lb</span>
+                <select id="loadedAsSelect" aria-label="Product given as">
+                  <option value="product" id="loadedUnitOpt">lb</option>
+                  <option value="acres">acres' worth</option>
+                </select>
               </div>
             </label>
           </div>

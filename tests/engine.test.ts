@@ -140,6 +140,16 @@ describe('rate', () => {
     expect(m.balance).toBeCloseTo(9000 - 200 * 1.03 * 45, 6);
   });
 
+  it("acres' worth given: 67 ac of product over 70.3 applied ac", () => {
+    // Real job: GIS 64.49 ac, planned 70.3 applied ac, given 67 acres' worth.
+    const rate = 200;
+    const a = adviseRate({ surfaceAc: 64.49, appliedAc: 70.3, targetRate: rate, loaded: 67 * rate })!;
+    expect(a.rateToEmpty).toBeCloseTo((200 * 67) / 70.3, 6); // 190.61
+    expect(a.rateToEmptyChangePct!).toBeCloseTo(67 / 70.3 - 1, 6); // −4.69%
+    // Same thing as a density change, true density 62: +4.93%.
+    expect(densityFor(62, rate, a.rateToEmpty!) / 62 - 1).toBeCloseTo(70.3 / 67 - 1, 6);
+  });
+
   it('acre constant', () => {
     expect(SQ_M_PER_ACRE).toBeCloseTo(4046.86, 2);
   });

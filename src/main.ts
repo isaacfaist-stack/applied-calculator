@@ -401,7 +401,9 @@ function renderResults() {
 
   const unit = settings.product.unit;
   const rate = settings.product.rate;
-  const loaded = settings.product.loaded;
+  // "67 acres' worth" means the plant loaded target rate × 67 ac of product.
+  const givenAcres = settings.product.loadedAs === 'acres' ? settings.product.loaded : undefined;
+  const loaded = givenAcres !== undefined ? givenAcres * rate : settings.product.loaded;
   const bias = machineBias();
   const a = adviseRate({ surfaceAc, appliedAc, targetRate: rate, loaded, bias });
   const answerChange = $('answerChange');
@@ -426,7 +428,7 @@ function renderResults() {
     const setRate = useLoad ? a.rateToEmpty! : a.rateForTarget;
     const change = useLoad ? a.rateToEmptyChangePct! : a.rateChangePct;
     const why = useLoad
-      ? `Empties the ${fmtQty(loaded!, unit)} load across ${fmt(appliedAc)} applied ac. Ground gets ${fmt(a.groundRateIfEmptied!, 1)} ${unit}/ac.`
+      ? `Spreads the ${givenAcres !== undefined ? `${fmt(givenAcres, 2)} acres' worth (${fmtQty(loaded!, unit)})` : `${fmtQty(loaded!, unit)} load`} across ${fmt(appliedAc)} applied ac. Ground gets ${fmt(a.groundRateIfEmptied!, 1)} ${unit}/ac.`
       : `Lays down ${fmt(rate, rate >= 100 ? 0 : 1)} ${unit}/ac on the ${fmt(surfaceAc)} surface ac, including overlap.`;
     if (!byDensity) {
       $('answerRate').textContent = fmt(setRate, setRate >= 100 ? 1 : 2);
@@ -473,6 +475,13 @@ function renderResults() {
     }
     if (byDensity && recommendedDensity) {
       rows.push(['Same as a rate change of', fmtPct(useLoad ? a.rateToEmptyChangePct! : a.rateChangePct)]);
+    }
+    if (givenAcres !== undefined && rate > 0) {
+      const extra = givenAcres - surfaceAc;
+      rows.push([
+        `Given ${fmt(givenAcres, 2)} ac worth for ${fmt(surfaceAc, 2)} surface ac`,
+        `${extra >= 0 ? '+' : '−'}${fmt(Math.abs(extra), 2)} ac (${fmtPct(givenAcres / surfaceAc - 1)})`,
+      ]);
     }
     if (a.loadBalance !== undefined) {
       const bal = a.loadBalance;
@@ -991,9 +1000,10 @@ function syncControls() {
   ($('rateInput') as HTMLInputElement).value = p.rate ? String(p.rate) : '';
   ($('unitSelect') as HTMLSelectElement).value = p.unit;
   ($('loadedInput') as HTMLInputElement).value = p.loaded ? String(p.loaded) : '';
+  ($('loadedAsSelect') as HTMLSelectElement).value = p.loadedAs ?? 'product';
   ($('densityInput') as HTMLInputElement).value = p.density ? String(p.density) : '';
   syncAdjustUi();
-  $('loadedUnit').textContent = p.unit;
+  $('loadedUnitOpt').textContent = p.unit;
   $('midLeftUnit').textContent = p.unit;
 }
 
@@ -1117,10 +1127,12 @@ function productChanged() {
     rate: num($('rateInput') as HTMLInputElement) ?? 0,
     unit: ($('unitSelect') as HTMLSelectElement).value,
     loaded: num($('loadedInput') as HTMLInputElement),
+    loadedAs: ($('loadedAsSelect') as HTMLSelectElement).value as 'product' | 'acres',
     adjustBy: settings.product.adjustBy,
     density: num($('densityInput') as HTMLInputElement),
   };
-  $('loadedUnit').textContent = settings.product.unit;
+  $('loadedUnitOpt').textContent = settings.product.unit;
+  ($('loadedInput') as HTMLInputElement).placeholder = settings.product.loadedAs === 'acres' ? 'e.g. 67' : 'e.g. 24000';
   $('midLeftUnit').textContent = settings.product.unit;
   saveSettings();
   renderResults();
@@ -1136,6 +1148,7 @@ $('midDensityInput').addEventListener('input', renderMidField);
 $('rateInput').addEventListener('input', productChanged);
 $('unitSelect').addEventListener('change', productChanged);
 $('loadedInput').addEventListener('input', productChanged);
+$('loadedAsSelect').addEventListener('change', productChanged);
 $('midAppliedInput').addEventListener('input', renderMidField);
 $('midLeftInput').addEventListener('input', renderMidField);
 

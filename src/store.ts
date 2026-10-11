@@ -42,7 +42,10 @@ export interface MachineRecord {
 export interface ProductSettings {
   rate: number;
   unit: string;
+  /** Product given for the field, in `loadedAs` terms. */
   loaded?: number;
+  /** "product": loaded is lb/gal/...; "acres": loaded is acres' worth at the target rate. */
+  loadedAs?: 'product' | 'acres';
   /** How to make the adjustment on the controller. */
   adjustBy?: 'rate' | 'density';
   /** True product density (lb/ft³) from the ticket or a density cup. */
