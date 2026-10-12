@@ -102,6 +102,10 @@ Fields, machines and each field's last settings are saved on the iPad. With
 location allowed, the field list sorts by distance, and the app offers the
 field you're parked in. **Settings → Back up** saves everything to a file.
 
+Every input section (Product, Work plan, Machine, and so on) folds closed with a
+tap on its title and shows a one-line summary while closed. The app remembers
+which sections you left open.
+
 ## Development
 
 ```bash

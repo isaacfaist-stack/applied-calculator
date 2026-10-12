@@ -461,7 +461,63 @@ function schedulePlan() {
 // ---------------------------------------------------------------------------
 // Results
 
+// ---------------------------------------------------------------------------
+// Collapsible sections: remember which are open, and show a one-line summary
+// on each so a closed section still says what it's set to.
+
+const FOLD_KEY = 'aac.folds.v1';
+function restoreFolds() {
+  let saved: Record<string, boolean> = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(FOLD_KEY) ?? '{}');
+  } catch {
+    /* defaults from the markup */
+  }
+  for (const d of document.querySelectorAll<HTMLDetailsElement>('details.fold')) {
+    if (d.id in saved) d.open = saved[d.id];
+    d.addEventListener('toggle', () => {
+      saved[d.id] = d.open;
+      try {
+        localStorage.setItem(FOLD_KEY, JSON.stringify(saved));
+      } catch {
+        /* not remembered this time */
+      }
+    });
+  }
+}
+
+const HEADING_LABELS = { longest: 'longest side', optimized: 'least overlap', manual: 'manual' } as const;
+const SHUTOFF_LABELS: Record<ShutoffMode, string> = { noskip: 'no skips', center: 'center', nooverlap: 'least overlap' };
+
+function updateSummaries() {
+  const p = settings.product;
+  const m = activeMachine();
+  const product = [`${fmt(p.rate || 0, p.rate >= 100 ? 0 : 1)} ${p.unit}/ac`];
+  if (p.loaded) product.push(p.loadedAs === 'acres' ? `${fmt(p.loaded, 2)} ac worth` : fmtQty(p.loaded, p.unit));
+  product.push(p.adjustBy === 'density' ? `density${p.density ? ` ${fmt(p.density, 1)}` : ''}` : 'by rate');
+  $('productSummary').textContent = product.join(' · ');
+
+  $('planSummary').textContent = [
+    `${plan.laps} headland lap${plan.laps === 1 ? '' : 's'}`,
+    plan.headingMode === 'manual' ? `${fmt(plan.headingDeg, 0)}°` : HEADING_LABELS[plan.headingMode],
+    SHUTOFF_LABELS[m.shutoff],
+  ].join(' · ');
+
+  const machine = [m.name];
+  const t = machineTracking();
+  if (t !== 1) machine.push(`${fmt(Math.abs(1 - t) * 100, 1)}% ${t < 1 ? 'under' : 'over'}`);
+  const b = machineBias();
+  if (b) machine.push(`bias ${b > 0 ? '+' : '−'}${fmt(Math.abs(b) * 100, 1)}%`);
+  $('machineSummary').textContent = machine.join(' · ');
+
+  $('breakdownSummary').textContent = result
+    ? `${fmtPct(result.appliedM2 / result.surfaceM2 - 1)} overlap · ${fmt(result.coverage.overlapAreaM2 / SQ_M_PER_ACRE)} ac doubled`
+    : '';
+  $('boundarySummary').textContent = activeField ? 'edit · exclusions · rename' : '';
+}
+
 function renderResults() {
+  updateSummaries();
   const has = !!(result && entries.length);
   $('heroEmpty').hidden = has;
   $('heroBody').hidden = !has;
@@ -1307,6 +1363,7 @@ function syncMachineUi() {
   // Stored as % of requested (96); shown as the decrease (4).
   const decrease = m.trackingPct && m.trackingPct !== 100 ? Math.round((100 - m.trackingPct) * 100) / 100 : 0;
   ($('trackingInput') as HTMLInputElement).value = decrease ? String(decrease) : '';
+  updateSummaries();
 }
 
 function syncControls() {
@@ -1320,11 +1377,13 @@ function syncControls() {
   ($('loadedAsSelect') as HTMLSelectElement).value = p.loadedAs ?? 'product';
   ($('densityInput') as HTMLInputElement).value = p.density ? String(p.density) : '';
   syncAdjustUi();
+  updateSummaries();
   $('loadedUnitOpt').textContent = p.unit;
   $('midLeftUnit').textContent = p.unit;
 }
 
 function planChanged() {
+  updateSummaries();
   saveFieldPrefs();
   schedulePlan();
 }
@@ -1609,6 +1668,7 @@ $('restoreInput').addEventListener('change', async (e) => {
 // Boot
 
 applyTheme();
+restoreFolds();
 void setBaseLayer();
 syncControls();
 $('layersBtn').setAttribute('aria-pressed', 'true');

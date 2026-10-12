@@ -53,8 +53,8 @@
         </div>
 
         <!-- Product -->
-        <div class="card">
-          <h2>Product</h2>
+        <details class="card fold" id="productCard" open>
+          <summary><h2>Product</h2><span class="muted sum-hint" id="productSummary"></span></summary>
           <div class="grid2">
             <label class="field">
               <span>Target rate</span>
@@ -102,11 +102,11 @@
             </p>
           </div>
           <dl class="kv" id="productKv"></dl>
-        </div>
+        </details>
 
         <!-- Plan -->
-        <div class="card">
-          <h2>Work plan</h2>
+        <details class="card fold" id="planCard" open>
+          <summary><h2>Work plan</h2><span class="muted sum-hint" id="planSummary"></span></summary>
           <div class="ctl">
             <span class="ctl-label">Headland laps</span>
             <div class="stepper">
@@ -142,11 +142,11 @@
               <button type="button" data-v="pivot">Pivot on line</button>
             </div>
           </div>
-        </div>
+        </details>
 
         <!-- Machine -->
-        <div class="card">
-          <h2>Machine</h2>
+        <details class="card fold" id="machineCard" open>
+          <summary><h2>Machine</h2><span class="muted sum-hint" id="machineSummary"></span></summary>
           <div class="ctl col">
             <select id="machineSelect" aria-label="Machine"></select>
           </div>
@@ -213,19 +213,19 @@
             <button class="btn" type="button" id="renameMachineBtn">Rename</button>
             <button class="btn danger-text" type="button" id="deleteMachineBtn">Delete</button>
           </div>
-        </div>
+        </details>
 
         <!-- Breakdown -->
-        <div class="card" id="breakdownCard" hidden>
-          <h2>Where the product goes</h2>
+        <details class="card fold" id="breakdownCard" open hidden>
+          <summary><h2>Where the product goes</h2><span class="muted sum-hint" id="breakdownSummary"></span></summary>
           <ul class="field-breakdown" id="fieldBreakdown" hidden></ul>
           <ul class="legend" id="legend"></ul>
           <dl class="kv" id="planKv"></dl>
-        </div>
+        </details>
 
         <!-- Boundary -->
-        <div class="card" id="boundaryCard" hidden>
-          <h2>Field boundary</h2>
+        <details class="card fold" id="boundaryCard" hidden>
+          <summary><h2>Field boundary</h2><span class="muted sum-hint" id="boundarySummary"></span></summary>
           <div class="row gap wrap">
             <button class="btn" type="button" id="editBoundaryBtn">Edit boundary</button>
             <button class="btn" type="button" id="addHoleBtn">Add exclusion</button>
@@ -233,10 +233,10 @@
             <button class="btn danger-text" type="button" id="clearHolesBtn">Clear exclusions</button>
           </div>
           <p class="muted small">Exclusions are areas inside the boundary that don't get product, like waterways, farmsteads and ponds.</p>
-        </div>
+        </details>
 
         <!-- Mid-field -->
-        <details class="card" id="midCard">
+        <details class="card fold" id="midCard">
           <summary><h2>Mid-field check</h2><span class="muted">Running long or short?</span></summary>
           <p class="muted small">Enter what the monitor and bin show now to get the rate that finishes the field empty.</p>
           <div class="grid2">
@@ -266,7 +266,7 @@
         </details>
 
         <!-- After the job -->
-        <details class="card" id="checkCard">
+        <details class="card fold" id="checkCard">
           <summary><h2>Check a finished job</h2><span class="muted">Calibrate</span></summary>
           <p class="muted small">
             Enter what really happened to work out this machine's rate tracking and whether the density or a bias needs

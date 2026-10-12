@@ -1093,3 +1093,48 @@ dialog.sheet::backdrop {
 .grid2.tight {
   margin-bottom: 0;
 }
+
+/* Collapsible sections -------------------------------------------------------- */
+
+details.card.fold summary {
+  min-height: 44px;
+  align-items: center;
+  margin: -4px 0;
+}
+
+details.card.fold summary h2 {
+  flex: none;
+}
+
+details.card.fold .sum-hint {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.9rem;
+  text-align: right;
+}
+
+/* The one-line summary is for when a section is closed. */
+details.card.fold[open] .sum-hint {
+  visibility: hidden;
+}
+
+details.card.fold summary::after {
+  flex: none;
+  transition: transform 0.15s ease;
+}
+
+details.card.fold[open] summary::after {
+  transform: rotate(180deg);
+}
+
+details.card.fold[open] summary {
+  margin-bottom: 12px;
+}
+
+details.card.fold:not([open]) {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
