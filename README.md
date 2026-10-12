@@ -27,9 +27,10 @@ own (its own headlands and pass direction), and the app totals them into
 one surface/applied figure and one rate or density for the whole load, with
 a per-field breakdown.
 
-**Rate tracking:** a belt that can't keep up with speed changes averages
-under the requested rate. Each machine can carry its tracking (e.g. 96% of
-requested, from the monitor's job average), and every answer accounts for it.
+**Average rate decrease:** a belt that can't keep up with speed changes
+averages under the requested rate. Each machine can carry its decrease (e.g.
+4% under, or enter the requested and job-average rates and it works it out),
+and every answer accounts for it.
 
 **Check a finished job:** enter the load, what's left, and the monitor's
 applied acres and average rate. The app separates rate tracking from what

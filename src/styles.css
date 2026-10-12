@@ -1089,3 +1089,7 @@ dialog.sheet::backdrop {
   margin: 0;
   color: var(--good);
 }
+
+.grid2.tight {
+  margin-bottom: 0;
+}

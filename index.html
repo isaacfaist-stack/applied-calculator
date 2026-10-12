@@ -182,15 +182,31 @@
             </p>
           </div>
           <div class="ctl col">
-            <span class="ctl-label">Rate tracking — average applied rate as % of requested</span>
+            <span class="ctl-label">Average rate decrease — how far under the requested rate this machine averages</span>
             <div class="input-unit">
-              <input id="trackingInput" type="number" inputmode="decimal" min="50" max="120" step="any" placeholder="100" />
-              <span class="suffix">%</span>
+              <input id="trackingInput" type="number" inputmode="decimal" min="-20" max="50" step="any" placeholder="0" />
+              <span class="suffix">% under</span>
             </div>
             <p class="muted small">
-              When the belt can't keep up with speed changes, the monitor's job average comes in under the request. Example:
-              requested 250, job summary says 240 → enter 96.
+              When the belt can't keep up with speed changes, the monitor's job average comes in under the request. Or work
+              it out from a job summary:
             </p>
+            <div class="grid2 tight">
+              <label class="field">
+                <span>Requested</span>
+                <div class="input-unit">
+                  <input id="trackReq" type="number" inputmode="decimal" min="0" step="any" placeholder="250" />
+                  <span class="suffix">/ac</span>
+                </div>
+              </label>
+              <label class="field">
+                <span>Job average</span>
+                <div class="input-unit">
+                  <input id="trackAvg" type="number" inputmode="decimal" min="0" step="any" placeholder="240" />
+                  <span class="suffix">/ac</span>
+                </div>
+              </label>
+            </div>
           </div>
           <div class="row gap wrap">
             <button class="btn" type="button" id="addMachineBtn">Add machine</button>

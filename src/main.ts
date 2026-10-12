@@ -551,7 +551,10 @@ function renderResults() {
       ],
     ];
     if (tracking !== 1) {
-      rows.push([`Rate tracking (${activeMachine().name})`, `averages ${fmt(tracking * 100, 1)}% of requested`]);
+      rows.push([
+        `Average rate decrease (${activeMachine().name})`,
+        `${fmt(Math.abs(1 - tracking) * 100, 1)}% ${tracking < 1 ? 'under' : 'over'} requested`,
+      ]);
     }
     if (bias) {
       rows.push([
@@ -749,7 +752,7 @@ function renderJobCheck() {
 
   if (r.tracking !== undefined) {
     parts.push(`<div class="ck-row">
-      <div><strong>Rate tracking: ${fmt(r.tracking * 100, 1)}%</strong>
+      <div><strong>Average rate decrease: ${fmt((1 - r.tracking) * 100, 1)}%</strong>
       <div class="muted small">Averaged ${fmt(Math.abs(1 - r.tracking) * 100, 1)}% ${r.tracking < 1 ? 'under' : 'over'} the request. Saves to ${esc(m.name)}.</div></div>
       <button class="btn" type="button" data-ck="tracking" data-v="${(r.tracking * 100).toFixed(1)}">Save to machine</button>
     </div>`);
@@ -799,7 +802,7 @@ $('ckResult').addEventListener('click', (e) => {
   if (b.dataset.ck === 'tracking') {
     m.trackingPct = v;
     store.saveMachines(machines);
-    toast(`${m.name}: rate tracking set to ${fmt(v, 1)}%`);
+    toast(`${m.name}: average rate decrease set to ${fmt(100 - v, 1)}%`);
   } else if (b.dataset.ck === 'bias') {
     m.biasPct = v;
     store.saveMachines(machines);
@@ -1301,7 +1304,9 @@ function syncMachineUi() {
   const bias = m.biasPct ?? 0;
   setSeg('biasDirSeg', bias < 0 ? 'less' : 'more');
   ($('biasInput') as HTMLInputElement).value = bias ? String(Math.abs(bias)) : '';
-  ($('trackingInput') as HTMLInputElement).value = m.trackingPct && m.trackingPct !== 100 ? String(m.trackingPct) : '';
+  // Stored as % of requested (96); shown as the decrease (4).
+  const decrease = m.trackingPct && m.trackingPct !== 100 ? Math.round((100 - m.trackingPct) * 100) / 100 : 0;
+  ($('trackingInput') as HTMLInputElement).value = decrease ? String(decrease) : '';
 }
 
 function syncControls() {
@@ -1374,13 +1379,28 @@ function biasChanged(dir?: string) {
   renderResults();
 }
 onSeg('biasDirSeg', (v) => biasChanged(v));
-$('trackingInput').addEventListener('input', () => {
-  const v = num($('trackingInput') as HTMLInputElement);
-  if (v !== undefined && (v < 50 || v > 120)) return; // still typing, or a typo
-  activeMachine().trackingPct = v;
+function setTrackingDecrease(decrease: number | undefined) {
+  activeMachine().trackingPct = decrease ? 100 - decrease : undefined;
   store.saveMachines(machines);
   renderResults();
+}
+$('trackingInput').addEventListener('input', () => {
+  const v = num($('trackingInput') as HTMLInputElement);
+  if (v !== undefined && (v < -20 || v > 50)) return; // still typing, or a typo
+  setTrackingDecrease(v);
 });
+// Requested + job average → decrease, filled in for the operator.
+function trackingFromSummary() {
+  const req = num($('trackReq') as HTMLInputElement);
+  const avg = num($('trackAvg') as HTMLInputElement);
+  if (!req || !avg || req <= 0 || avg <= 0) return;
+  const decrease = Math.round((1 - avg / req) * 1000) / 10;
+  if (decrease < -20 || decrease > 50) return;
+  ($('trackingInput') as HTMLInputElement).value = String(decrease);
+  setTrackingDecrease(decrease);
+}
+$('trackReq').addEventListener('input', trackingFromSummary);
+$('trackAvg').addEventListener('input', trackingFromSummary);
 $('biasInput').addEventListener('input', () => biasChanged());
 onSeg('cornerSeg', (v) => updateMachine({ cornerStyle: v as CornerStyle }));
 
