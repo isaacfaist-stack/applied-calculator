@@ -37,6 +37,8 @@ export interface MachineRecord {
    * reports. +3 = puts out 3% more than it shows.
    */
   biasPct?: number;
+  /** Average achieved rate as % of requested (96 = runs 4% under). */
+  trackingPct?: number;
 }
 
 export interface ProductSettings {

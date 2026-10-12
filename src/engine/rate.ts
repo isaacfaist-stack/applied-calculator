@@ -3,11 +3,14 @@
 // figured on surface acres, so the controller rate has to be scaled by
 // surface ÷ applied to come out even.
 //
-// Machine bias: most machines don't put out exactly what the monitor says.
-// bias = actual product out ÷ product the monitor reports − 1, so +0.03 means
-// the machine puts out 3% more than it shows. Every controller setting below
-// is divided by (1 + bias) so the product that really leaves the machine
-// comes out even.
+// Two machine factors scale what really leaves the machine:
+//  - tracking: the average rate the controller actually achieves ÷ the rate
+//    requested (a belt that can't keep up with speed changes averages low,
+//    e.g. 0.96). The monitor's job summary shows the achieved average.
+//  - bias: actual product out ÷ product the monitor reports − 1, so +0.03
+//    means the machine puts out 3% more than it shows.
+// Product out = requested rate × tracking × (1 + bias) × applied acres, so
+// every controller setting below is divided by tracking × (1 + bias).
 
 export interface RateInputs {
   surfaceAc: number;
@@ -18,6 +21,8 @@ export interface RateInputs {
   loaded?: number;
   /** Machine bias as a fraction (+0.03 = puts out 3% more than it shows). */
   bias?: number;
+  /** Achieved ÷ requested rate (0.96 = averages 4% under the request). */
+  tracking?: number;
 }
 
 export interface RateAdvice {
@@ -42,7 +47,7 @@ export interface RateAdvice {
 
 export function adviseRate(i: RateInputs): RateAdvice | null {
   if (!(i.surfaceAc > 0) || !(i.appliedAc > 0) || !(i.targetRate > 0)) return null;
-  const out = 1 + (i.bias ?? 0);
+  const out = (1 + (i.bias ?? 0)) * (i.tracking ?? 1);
   if (!(out > 0)) return null;
   const factor = i.surfaceAc / i.appliedAc / out;
   const advice: RateAdvice = {
@@ -94,6 +99,8 @@ export interface MidFieldInputs {
   currentRate: number;
   /** Machine bias as a fraction (+0.03 = puts out 3% more than it shows). */
   bias?: number;
+  /** Achieved ÷ requested rate (0.96 = averages 4% under the request). */
+  tracking?: number;
 }
 
 export interface MidFieldAdvice {
@@ -106,7 +113,7 @@ export interface MidFieldAdvice {
 
 export function adviseMidField(i: MidFieldInputs): MidFieldAdvice | null {
   const remainingAc = i.plannedAppliedAc - i.appliedSoFarAc;
-  const out = 1 + (i.bias ?? 0);
+  const out = (1 + (i.bias ?? 0)) * (i.tracking ?? 1);
   if (!(remainingAc > 0) || !(i.remaining >= 0) || !(i.currentRate > 0) || !(out > 0)) return null;
   const rateToFinish = i.remaining / remainingAc / out;
   return {
@@ -114,5 +121,54 @@ export function adviseMidField(i: MidFieldInputs): MidFieldAdvice | null {
     rateToFinish,
     changePct: rateToFinish / i.currentRate - 1,
     balance: i.remaining - i.currentRate * out * remainingAc,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// After the job: split what happened into rate tracking and a remaining gap.
+
+export interface JobCheckInputs {
+  /** Rate set on the controller (lb/ac). */
+  requestedRate: number;
+  /** Average applied rate from the monitor's job summary; optional. */
+  achievedRate?: number;
+  /** Applied acres the monitor counted. */
+  appliedAc: number;
+  /** Product that really left the machine (load − leftover, by weight). */
+  used: number;
+  /** True product density and the density programmed in; optional. */
+  trueDensity?: number;
+  programmedDensity?: number;
+}
+
+export interface JobCheckResult {
+  /** Achieved ÷ requested, when the achieved rate is known. */
+  tracking?: number;
+  /** Pounds the monitor believes it put out (achieved rate × acres). */
+  monitorProduct: number;
+  /** Pounds that should have left given the density setting. */
+  expectedOut: number;
+  /** used ÷ expected − 1: what tracking and density don't explain. */
+  gap: number;
+  /** Density that would explain the whole gap (when one was programmed). */
+  impliedDensity?: number;
+}
+
+export function checkJob(i: JobCheckInputs): JobCheckResult | null {
+  if (!(i.requestedRate > 0) || !(i.appliedAc > 0) || !(i.used > 0)) return null;
+  const achieved = i.achievedRate && i.achievedRate > 0 ? i.achievedRate : i.requestedRate;
+  const monitorProduct = achieved * i.appliedAc;
+  const densityRatio =
+    i.trueDensity && i.programmedDensity && i.trueDensity > 0 && i.programmedDensity > 0
+      ? i.trueDensity / i.programmedDensity
+      : 1;
+  const expectedOut = monitorProduct * densityRatio;
+  return {
+    tracking: i.achievedRate && i.achievedRate > 0 ? i.achievedRate / i.requestedRate : undefined,
+    monitorProduct,
+    expectedOut,
+    gap: i.used / expectedOut - 1,
+    impliedDensity:
+      i.programmedDensity && i.programmedDensity > 0 ? (i.programmedDensity * i.used) / monitorProduct : undefined,
   };
 }

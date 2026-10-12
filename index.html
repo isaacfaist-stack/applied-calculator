@@ -181,6 +181,17 @@
               bin, pick "Puts out more" and enter 3.
             </p>
           </div>
+          <div class="ctl col">
+            <span class="ctl-label">Rate tracking — average applied rate as % of requested</span>
+            <div class="input-unit">
+              <input id="trackingInput" type="number" inputmode="decimal" min="50" max="120" step="any" placeholder="100" />
+              <span class="suffix">%</span>
+            </div>
+            <p class="muted small">
+              When the belt can't keep up with speed changes, the monitor's job average comes in under the request. Example:
+              requested 250, job summary says 240 → enter 96.
+            </p>
+          </div>
           <div class="row gap wrap">
             <button class="btn" type="button" id="addMachineBtn">Add machine</button>
             <button class="btn" type="button" id="renameMachineBtn">Rename</button>
@@ -236,6 +247,70 @@
             </div>
           </label>
           <div class="mid-answer" id="midAnswer"></div>
+        </details>
+
+        <!-- After the job -->
+        <details class="card" id="checkCard">
+          <summary><h2>Check a finished job</h2><span class="muted">Calibrate</span></summary>
+          <p class="muted small">
+            Enter what really happened to work out this machine's rate tracking and whether the density or a bias needs
+            changing.
+          </p>
+          <div class="grid2">
+            <label class="field">
+              <span>Product loaded</span>
+              <div class="input-unit">
+                <input id="ckLoaded" type="number" inputmode="decimal" min="0" step="any" />
+                <select id="ckLoadedAs" aria-label="Loaded as">
+                  <option value="product" id="ckLoadedUnitOpt">lb</option>
+                  <option value="acres">ac worth</option>
+                </select>
+              </div>
+            </label>
+            <label class="field">
+              <span>Left over (weighed if you can)</span>
+              <div class="input-unit">
+                <input id="ckLeft" type="number" inputmode="decimal" min="0" step="any" placeholder="0" />
+                <span class="suffix" id="ckLeftUnit">lb</span>
+              </div>
+            </label>
+            <label class="field">
+              <span>Applied acres (monitor)</span>
+              <div class="input-unit">
+                <input id="ckAcres" type="number" inputmode="decimal" min="0" step="any" />
+                <span class="suffix">ac</span>
+              </div>
+            </label>
+            <label class="field">
+              <span>Average applied rate (monitor)</span>
+              <div class="input-unit">
+                <input id="ckAchieved" type="number" inputmode="decimal" min="0" step="any" />
+                <span class="suffix" id="ckAchievedUnit">lb/ac</span>
+              </div>
+            </label>
+            <label class="field">
+              <span>Requested rate</span>
+              <div class="input-unit">
+                <input id="ckRequested" type="number" inputmode="decimal" min="0" step="any" />
+                <span class="suffix" id="ckRequestedUnit">lb/ac</span>
+              </div>
+            </label>
+            <label class="field">
+              <span>Density programmed <em>(if used)</em></span>
+              <div class="input-unit">
+                <input id="ckProgDensity" type="number" inputmode="decimal" min="0" step="any" />
+                <span class="suffix">lb/ft³</span>
+              </div>
+            </label>
+            <label class="field">
+              <span>Product's true density <em>(if known)</em></span>
+              <div class="input-unit">
+                <input id="ckTrueDensity" type="number" inputmode="decimal" min="0" step="any" />
+                <span class="suffix">lb/ft³</span>
+              </div>
+            </label>
+          </div>
+          <div id="ckResult"></div>
         </details>
 
         <p class="footnote muted small">

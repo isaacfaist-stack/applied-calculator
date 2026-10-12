@@ -6,7 +6,7 @@ import { registerSW } from 'virtual:pwa-register';
 import { M_PER_FT, SQ_M_PER_ACRE, ringArea } from './engine/geometry';
 import { makeProjection } from './engine/projection';
 import type { CornerStyle, ShutoffMode } from './engine/plan';
-import { actualRateAt, adviseMidField, adviseRate, densityFor } from './engine/rate';
+import { actualRateAt, adviseMidField, adviseRate, checkJob, densityFor } from './engine/rate';
 import { type LocalField, distanceMiles, geometryCenter, geometryRings, pointInGeometry, toLocalField } from './fieldModel';
 import { fetchRemoteBoundary, listRemoteFields } from './integrations/boundaryServer';
 import { type BoundaryGeometry, importFiles } from './io/import';
@@ -139,6 +139,12 @@ function activeMachine(): MachineRecord {
 /** Active machine's bias as a fraction (+0.03 = puts out 3% more). */
 function machineBias(): number {
   return (activeMachine().biasPct ?? 0) / 100;
+}
+
+/** Active machine's achieved ÷ requested rate (0.96 = averages 4% under). */
+function machineTracking(): number {
+  const t = activeMachine().trackingPct;
+  return t && t > 0 ? t / 100 : 1;
 }
 
 function saveSettings() {
@@ -474,7 +480,8 @@ function renderResults() {
   const givenAcres = settings.product.loadedAs === 'acres' ? settings.product.loaded : undefined;
   const loaded = givenAcres !== undefined ? givenAcres * rate : settings.product.loaded;
   const bias = machineBias();
-  const a = adviseRate({ surfaceAc, appliedAc, targetRate: rate, loaded, bias });
+  const tracking = machineTracking();
+  const a = adviseRate({ surfaceAc, appliedAc, targetRate: rate, loaded, bias, tracking });
   const answerChange = $('answerChange');
   const kv = $('productKv');
   const byDensity = settings.product.adjustBy === 'density';
@@ -534,8 +541,18 @@ function renderResults() {
     const rows: [string, string, string?][] = [
       ['Needed at target (surface ac)', fmtQty(a.productNeeded, unit), 'strong'],
       ['Used if rate is left at target', fmtQty(a.productAtTarget, unit)],
-      [bias ? 'Extra from overlap + machine bias' : 'Extra from overlap', fmtQty(a.productAtTarget - a.productNeeded, unit)],
+      [
+        a.productAtTarget < a.productNeeded
+          ? 'Short of needed (machine runs under)'
+          : bias || tracking !== 1
+            ? 'Extra from overlap + machine factors'
+            : 'Extra from overlap',
+        fmtQty(Math.abs(a.productAtTarget - a.productNeeded), unit),
+      ],
     ];
+    if (tracking !== 1) {
+      rows.push([`Rate tracking (${activeMachine().name})`, `averages ${fmt(tracking * 100, 1)}% of requested`]);
+    }
     if (bias) {
       rows.push([
         `Machine bias (${activeMachine().name})`,
@@ -640,6 +657,7 @@ function renderMidField() {
     remaining: left,
     currentRate: actualNow,
     bias: machineBias(),
+    tracking: machineTracking(),
   });
   if (!m) {
     out.innerHTML = `<p class="muted small">Monitor already shows the planned ${fmt(plannedAppliedAc)} applied ac or more.</p>`;
@@ -665,6 +683,152 @@ function renderMidField() {
     <div class="big">${fmt(m.rateToFinish, m.rateToFinish >= 100 ? 1 : 2)} <span class="answer-unit">${esc(unit)}/ac</span></div>
     <div class="answer-change ${m.changePct < 0 ? 'down' : 'up'}">${fmtPct(m.changePct)} vs. ${fmt(displayRate, 1)}</div>${balance}`;
 }
+
+// ---------------------------------------------------------------------------
+// After the job: split the result into rate tracking and a remaining gap.
+
+function prefillJobCheck() {
+  const p = settings.product;
+  const setIfEmpty = (id: string, v: number | undefined) => {
+    const el = $(id) as HTMLInputElement;
+    if (!el.value && v) el.value = String(Math.round(v * 100) / 100);
+  };
+  if (!($('ckLoaded') as HTMLInputElement).value && p.loaded) {
+    ($('ckLoadedAs') as HTMLSelectElement).value = p.loadedAs ?? 'product';
+  }
+  setIfEmpty('ckLoaded', p.loaded);
+  setIfEmpty('ckRequested', p.rate);
+  setIfEmpty('ckAcres', num($('midAppliedInput') as HTMLInputElement) ?? (result ? result.appliedM2 / SQ_M_PER_ACRE : undefined));
+  if (p.adjustBy === 'density') {
+    setIfEmpty('ckTrueDensity', p.density);
+    setIfEmpty('ckProgDensity', recommendedDensity);
+  }
+  const unit = p.unit;
+  $('ckLoadedUnitOpt').textContent = unit;
+  $('ckLeftUnit').textContent = unit;
+  $('ckAchievedUnit').textContent = `${unit}/ac`;
+  $('ckRequestedUnit').textContent = `${unit}/ac`;
+}
+
+function renderJobCheck() {
+  const out = $('ckResult');
+  const unit = settings.product.unit;
+  const requested = num($('ckRequested') as HTMLInputElement);
+  const loadedRaw = num($('ckLoaded') as HTMLInputElement);
+  const loaded =
+    loadedRaw !== undefined && ($('ckLoadedAs') as HTMLSelectElement).value === 'acres' && requested
+      ? loadedRaw * requested
+      : loadedRaw;
+  const left = num($('ckLeft') as HTMLInputElement) ?? 0;
+  const acres = num($('ckAcres') as HTMLInputElement);
+  if (!requested || !loaded || !acres) {
+    out.innerHTML = '<p class="muted small">Fill in product loaded, applied acres and requested rate.</p>';
+    return;
+  }
+  const used = loaded - left;
+  const r = checkJob({
+    requestedRate: requested,
+    achievedRate: num($('ckAchieved') as HTMLInputElement),
+    appliedAc: acres,
+    used,
+    trueDensity: num($('ckTrueDensity') as HTMLInputElement),
+    programmedDensity: num($('ckProgDensity') as HTMLInputElement),
+  });
+  if (!r) {
+    out.innerHTML = '<p class="muted small">Check the numbers: more left over than was loaded?</p>';
+    return;
+  }
+  const m = activeMachine();
+  const parts: string[] = [];
+  parts.push(`<dl class="kv">
+    <dt>Product used</dt><dd class="strong">${fmtQty(used, unit)}</dd>
+    <dt>Monitor thinks it put out</dt><dd>${fmtQty(r.monitorProduct, unit)}</dd>
+    <dt>Should have left the bin</dt><dd>${fmtQty(r.expectedOut, unit)}</dd>
+    <dt>Ground got (per applied ac)</dt><dd>${fmt(used / acres, 1)} ${esc(unit)}/ac</dd>
+  </dl>`);
+
+  if (r.tracking !== undefined) {
+    parts.push(`<div class="ck-row">
+      <div><strong>Rate tracking: ${fmt(r.tracking * 100, 1)}%</strong>
+      <div class="muted small">Averaged ${fmt(Math.abs(1 - r.tracking) * 100, 1)}% ${r.tracking < 1 ? 'under' : 'over'} the request. Saves to ${esc(m.name)}.</div></div>
+      <button class="btn" type="button" data-ck="tracking" data-v="${(r.tracking * 100).toFixed(1)}">Save to machine</button>
+    </div>`);
+  } else {
+    parts.push(
+      '<p class="muted small">Add the monitor\'s average applied rate to separate the belt keeping up from everything else.</p>',
+    );
+  }
+
+  const gap = r.gap;
+  if (Math.abs(gap) < 0.01) {
+    parts.push(`<p class="ck-ok"><strong>✓ Within 1% (${fmtPct(gap)}).</strong> No density or bias change needed.</p>`);
+  } else {
+    const more = gap > 0;
+    const explained = [
+      r.tracking !== undefined ? 'rate tracking' : '',
+      num($('ckProgDensity') as HTMLInputElement) ? 'the density setting' : '',
+    ].filter(Boolean);
+    const than = explained.length
+      ? `${explained.join(' and ')} explain${explained.length > 1 ? '' : 's'}`
+      : 'the monitor shows';
+    parts.push(`<div class="ck-gap">
+      <strong>${fmt(Math.abs(gap) * 100, 1)}% ${more ? 'more' : 'less'} product went out than ${than}.</strong>
+      <div class="muted small">It is one of these, not both. Density on blend tickets is often calculated rather than measured, so if you didn't use a density cup, density is the usual cause.</div>
+    </div>`);
+    if (r.impliedDensity !== undefined) {
+      parts.push(`<div class="ck-row">
+        <div><strong>Product density was really ~${fmt(r.impliedDensity, 1)} lb/ft³</strong>
+        <div class="muted small">Use this for the rest of this blend.</div></div>
+        <button class="btn" type="button" data-ck="density" data-v="${r.impliedDensity.toFixed(1)}">Use ${fmt(r.impliedDensity, 1)}</button>
+      </div>`);
+    }
+    parts.push(`<div class="ck-row">
+      <div><strong>Or: machine puts out ${fmt(Math.abs(gap) * 100, 1)}% ${more ? 'more' : 'less'} than the monitor</strong>
+      <div class="muted small">Only if density was measured. Confirm over a few loads.</div></div>
+      <button class="btn" type="button" data-ck="bias" data-v="${(gap * 100).toFixed(1)}">Save as bias</button>
+    </div>`);
+  }
+  out.innerHTML = parts.join('');
+}
+
+$('ckResult').addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLElement>('[data-ck]');
+  if (!b) return;
+  const v = parseFloat(b.dataset.v!);
+  const m = activeMachine();
+  if (b.dataset.ck === 'tracking') {
+    m.trackingPct = v;
+    store.saveMachines(machines);
+    toast(`${m.name}: rate tracking set to ${fmt(v, 1)}%`);
+  } else if (b.dataset.ck === 'bias') {
+    m.biasPct = v;
+    store.saveMachines(machines);
+    toast(`${m.name}: bias set to ${fmt(Math.abs(v), 1)}% ${v > 0 ? 'more' : 'less'}`);
+  } else if (b.dataset.ck === 'density') {
+    settings.product.density = v;
+    settings.product.adjustBy = 'density';
+    saveSettings();
+    ($('densityInput') as HTMLInputElement).value = String(v);
+    toast(
+      m.biasPct
+        ? `Density set to ${fmt(v, 1)}. ${m.name} still has a ${fmt(Math.abs(m.biasPct), 1)}% bias; clear it if density explains the gap.`
+        : `Density set to ${fmt(v, 1)} lb/ft³`,
+    );
+  }
+  syncMachineUi();
+  renderResults();
+});
+
+$('checkCard').addEventListener('toggle', () => {
+  if (($('checkCard') as HTMLDetailsElement).open) {
+    prefillJobCheck();
+    renderJobCheck();
+  }
+});
+for (const id of ['ckLoaded', 'ckLeft', 'ckAcres', 'ckAchieved', 'ckRequested', 'ckProgDensity', 'ckTrueDensity']) {
+  $(id).addEventListener('input', renderJobCheck);
+}
+$('ckLoadedAs').addEventListener('change', renderJobCheck);
 
 // ---------------------------------------------------------------------------
 // Field selection
@@ -1137,6 +1301,7 @@ function syncMachineUi() {
   const bias = m.biasPct ?? 0;
   setSeg('biasDirSeg', bias < 0 ? 'less' : 'more');
   ($('biasInput') as HTMLInputElement).value = bias ? String(Math.abs(bias)) : '';
+  ($('trackingInput') as HTMLInputElement).value = m.trackingPct && m.trackingPct !== 100 ? String(m.trackingPct) : '';
 }
 
 function syncControls() {
@@ -1209,6 +1374,13 @@ function biasChanged(dir?: string) {
   renderResults();
 }
 onSeg('biasDirSeg', (v) => biasChanged(v));
+$('trackingInput').addEventListener('input', () => {
+  const v = num($('trackingInput') as HTMLInputElement);
+  if (v !== undefined && (v < 50 || v > 120)) return; // still typing, or a typo
+  activeMachine().trackingPct = v;
+  store.saveMachines(machines);
+  renderResults();
+});
 $('biasInput').addEventListener('input', () => biasChanged());
 onSeg('cornerSeg', (v) => updateMachine({ cornerStyle: v as CornerStyle }));
 

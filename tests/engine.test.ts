@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { type Poly, SQ_M_PER_ACRE, polysArea } from '../src/engine/geometry';
 import { optimizeHeading, plan, prepareField } from '../src/engine/plan';
 import { computeCoverage } from '../src/engine/coverage';
-import { actualRateAt, adviseMidField, adviseRate, densityFor } from '../src/engine/rate';
+import { actualRateAt, adviseMidField, adviseRate, checkJob, densityFor } from '../src/engine/rate';
 
 const rect = (w: number, h: number): Poly[] => [
   { outer: [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }], holes: [] },
@@ -148,6 +148,31 @@ describe('rate', () => {
     expect(a.rateToEmptyChangePct!).toBeCloseTo(67 / 70.3 - 1, 6); // −4.69%
     // Same thing as a density change, true density 62: +4.93%.
     expect(densityFor(62, rate, a.rateToEmpty!) / 62 - 1).toBeCloseTo(70.3 / 67 - 1, 6);
+  });
+
+  it('rate tracking: a machine averaging 96% of the request is set higher', () => {
+    const a = adviseRate({ surfaceAc: 100, appliedAc: 105, targetRate: 200, loaded: 20000, tracking: 0.96 })!;
+    expect(a.rateToEmpty! * 0.96 * 105).toBeCloseTo(20000, 6);
+    expect(a.productAtTarget).toBeCloseTo(200 * 0.96 * 105, 6);
+    // Tracking and bias stack.
+    const both = adviseRate({ surfaceAc: 100, appliedAc: 105, targetRate: 200, tracking: 0.96, bias: 0.02 })!;
+    expect(both.rateForTarget * 105 * 0.96 * 1.02).toBeCloseTo(200 * 100, 6);
+    const m = adviseMidField({ plannedAppliedAc: 105, appliedSoFarAc: 60, remaining: 9000, currentRate: 200, tracking: 0.96 })!;
+    expect(m.rateToFinish * 0.96 * 45).toBeCloseTo(9000, 6);
+  });
+
+  it('job check: the real field (250 lb/ac, 68.5 true, 70 set, 67 ac worth, 1,084 lb left)', () => {
+    const used = 67 * 250 - 1084; // 15,666
+    // Without the monitor's average rate, everything lands in the gap.
+    const blind = checkJob({ requestedRate: 250, appliedAc: 69.5, used, trueDensity: 68.5, programmedDensity: 70 })!;
+    expect(blind.expectedOut).toBeCloseTo(250 * 69.5 * (68.5 / 70), 6);
+    expect(blind.gap).toBeCloseTo(used / (250 * 69.5 * (68.5 / 70)) - 1, 9); // ≈ −7.9%
+    expect(blind.impliedDensity).toBeCloseTo((70 * used) / (250 * 69.5), 6); // ≈ 63.1
+    // If the monitor averaged 238 lb/ac, tracking explains part of it.
+    const r = checkJob({ requestedRate: 250, achievedRate: 238, appliedAc: 69.5, used, trueDensity: 68.5, programmedDensity: 70 })!;
+    expect(r.tracking).toBeCloseTo(0.952, 6);
+    expect(Math.abs(r.gap)).toBeLessThan(Math.abs(blind.gap));
+    expect(r.impliedDensity).toBeCloseTo((70 * used) / (238 * 69.5), 6);
   });
 
   it('acre constant', () => {
