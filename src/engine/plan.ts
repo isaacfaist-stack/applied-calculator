@@ -16,7 +16,6 @@ import {
   allRings,
   cleanRing,
   differencePolys,
-  intersectIntervals,
   lineIntervals,
   offsetPolys,
   polysArea,
@@ -130,21 +129,30 @@ export interface PreparedField {
   interiorM2: number;
 }
 
+/**
+ * @param avoid exclusions that can't be driven through (trees, ponds,
+ *   buildings). Headland laps go around them like a field edge and passes
+ *   stop at their headland. Other holes in `field` are driven through with
+ *   product off.
+ */
 export function prepareField(
   field: Poly[],
   machine: MachineSpec,
   headlandLaps: number,
   cornerStyle: CornerStyle = 'pivot',
+  avoid: Poly[] = [],
 ): PreparedField {
   const W = machine.widthM;
   const outerOnly: Poly[] = field.map((p) => ({ outer: p.outer, holes: [] }));
+  // The ground the machine can drive on: field outline minus obstacles.
+  const drivable: Poly[] = avoid.length ? differencePolys(outerOnly, avoid) : outerOnly;
   const holes: Poly[] = field.flatMap((p) => p.holes.map((h) => ({ outer: h, holes: [] })));
 
   const headlandPaths: Ring[] = [];
   const headlandSwaths: Swath[] = [];
   let headlandAppliedM2 = 0;
   for (let lap = 1; lap <= headlandLaps; lap++) {
-    const centerline = offsetPolys(outerOnly, -(lap - 0.5) * W);
+    const centerline = offsetPolys(drivable, -(lap - 0.5) * W);
     for (const p of centerline) {
       for (const raw of [p.outer, ...p.holes]) {
         const ring = simplifyRing(cleanRing(raw), 0.3);
@@ -173,7 +181,7 @@ export function prepareField(
     }
   }
 
-  const shrunk = headlandLaps > 0 ? offsetPolys(outerOnly, -headlandLaps * W) : outerOnly;
+  const shrunk = headlandLaps > 0 ? offsetPolys(drivable, -headlandLaps * W) : drivable;
   const interior = holes.length ? differencePolys(shrunk, holes) : shrunk;
 
   return {
@@ -223,8 +231,8 @@ function runPasses(prep: PreparedField, headingDeg: number, shutoff: ShutoffMode
   const samplesPerSection = Math.max(5, Math.ceil(w / 2) + 1);
 
   for (let yc = minY + W / 2; yc - W / 2 < maxY - 1e-6; yc += W) {
-    let passMin = Infinity;
-    let passMax = -Infinity;
+    // Stretches of this pass with product on (any section), for drawing.
+    const passOn: Intervals[] = [];
     let passHasProduct = false;
     for (let s = 0; s < n; s++) {
       const y0 = yc - W / 2 + s * w;
@@ -236,21 +244,7 @@ function runPasses(prep: PreparedField, headingDeg: number, shutoff: ShutoffMode
       }
       const any = unionIntervals(sampleSets);
       if (!any.length) continue;
-      const center = lineIntervals(rings, y0 + w / 2);
-      const all = sampleSets.reduce((acc, set) => intersectIntervals(acc, set));
-
-      const on: Intervals = [];
-      for (const u of any) {
-        if (shutoff === 'noskip') {
-          on.push(u);
-          continue;
-        }
-        const c = intersectIntervals(center, [u]);
-        const x = shutoff === 'nooverlap' ? intersectIntervals(all, [u]) : [];
-        if (x.length) on.push(...x);
-        else if (c.length) on.push(...c);
-        else on.push(u); // partial strip nobody else will cover
-      }
+      const on = sectionOnIntervals(sampleSets, shutoff, Math.max(2 * W, 30));
 
       for (const [x0, x1] of on) {
         const len = x1 - x0;
@@ -258,8 +252,7 @@ function runPasses(prep: PreparedField, headingDeg: number, shutoff: ShutoffMode
         passHasProduct = true;
         result.passApplied += len * w;
         result.onDistance += len / n;
-        passMin = Math.min(passMin, x0);
-        passMax = Math.max(passMax, x1);
+        passOn.push([[x0, x1]]);
         if (collect) {
           const ys = y0 + w / 2;
           result.swaths.push({ a: back({ x: x0, y: ys }), b: back({ x: x1, y: ys }), width: w, kind: 'pass' });
@@ -268,10 +261,60 @@ function runPasses(prep: PreparedField, headingDeg: number, shutoff: ShutoffMode
     }
     if (passHasProduct) {
       result.passCount++;
-      if (collect) result.passLines.push([back({ x: passMin, y: yc }), back({ x: passMax, y: yc })]);
+      if (collect) {
+        for (const [x0, x1] of unionIntervals(passOn)) result.passLines.push([back({ x: x0, y: yc }), back({ x: x1, y: yc })]);
+      }
     }
   }
   return result;
+}
+
+/**
+ * Where one section has product on along a pass. `sampleSets` are the
+ * stretches of unapplied ground under lines spread across the section; at
+ * each point, the share of lines over unapplied ground is how much of the
+ * section is still needed there.
+ *
+ * The shutoff setting only governs short partial stretches, which is what
+ * crossing a headland line looks like. A long stretch where the section is
+ * only partly over unapplied ground means it is running alongside a headland,
+ * an obstacle or the last pass; an operator keeps spreading there rather
+ * than leave a strip, so it stays on.
+ */
+function sectionOnIntervals(sampleSets: Intervals[], shutoff: ShutoffMode, lateralRun: number): Intervals {
+  const k = sampleSets.length;
+  const xs = [...new Set(sampleSets.flat(2))].sort((a, b) => a - b);
+  const need = shutoff === 'noskip' ? 1e-9 : shutoff === 'center' ? 0.5 : 1 - 1e-9;
+  const pieces: { x0: number; x1: number; f: number }[] = [];
+  for (let i = 0; i + 1 < xs.length; i++) {
+    const x0 = xs[i];
+    const x1 = xs[i + 1];
+    if (x1 - x0 < 1e-6) continue;
+    const mid = (x0 + x1) / 2;
+    let hits = 0;
+    for (const set of sampleSets) if (set.some(([a, b]) => a <= mid && mid < b)) hits++;
+    if (hits) pieces.push({ x0, x1, f: hits / k });
+  }
+  const on: Intervals = [];
+  const push = (x0: number, x1: number) => {
+    const last = on[on.length - 1];
+    if (last && x0 - last[1] < 1e-6) last[1] = x1;
+    else on.push([x0, x1]);
+  };
+  for (let i = 0; i < pieces.length; ) {
+    const p = pieces[i];
+    if (p.f >= need) {
+      push(p.x0, p.x1);
+      i++;
+      continue;
+    }
+    // A run of partial coverage: on only if it's long (running alongside).
+    let j = i;
+    while (j + 1 < pieces.length && pieces[j + 1].f < need && pieces[j + 1].x0 - pieces[j].x1 < 1e-6) j++;
+    if (pieces[j].x1 - p.x0 >= lateralRun) for (let q = i; q <= j; q++) push(pieces[q].x0, pieces[q].x1);
+    i = j + 1;
+  }
+  return on;
 }
 
 export function planWithPrepared(prep: PreparedField, opts: Pick<PlanOptions, 'headingDeg' | 'shutoff'>): PlanResult {
@@ -292,8 +335,8 @@ export function planWithPrepared(prep: PreparedField, opts: Pick<PlanOptions, 'h
   };
 }
 
-export function plan(field: Poly[], machine: MachineSpec, opts: PlanOptions): PlanResult {
-  return planWithPrepared(prepareField(field, machine, opts.headlandLaps, opts.cornerStyle), opts);
+export function plan(field: Poly[], machine: MachineSpec, opts: PlanOptions, avoid: Poly[] = []): PlanResult {
+  return planWithPrepared(prepareField(field, machine, opts.headlandLaps, opts.cornerStyle, avoid), opts);
 }
 
 /**

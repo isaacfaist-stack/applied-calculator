@@ -65,13 +65,14 @@
           </div>
           <div id="boundaryTools" hidden>
             <h3>Boundary</h3>
-            <div class="row gap wrap">
-              <button class="btn" type="button" id="editBoundaryBtn">Edit boundary</button>
-              <button class="btn" type="button" id="addHoleBtn">Add exclusion</button>
+            <div class="row gap wrap" id="partButtons"></div>
+            <div class="row gap wrap boundary-more">
               <button class="btn" type="button" id="renameFieldBtn">Rename</button>
-              <button class="btn danger-text" type="button" id="clearHolesBtn">Clear exclusions</button>
+              <button class="btn" type="button" id="restoreBoundaryBtn" hidden>Restore imported boundary</button>
             </div>
-            <p class="muted small">Exclusions are areas inside the boundary that don't get product, like waterways, farmsteads and ponds.</p>
+            <h3>Exclusions <button type="button" class="info" data-help="exclusions" aria-label="What are exclusions?">i</button></h3>
+            <ul class="exclusion-list" id="exclusionList"></ul>
+            <button class="btn" type="button" id="addHoleBtn">Add exclusion</button>
           </div>
         </details>
 
@@ -199,6 +200,10 @@
         </div>
         <div class="draw-bar" id="drawBar" hidden>
           <span id="drawHint">Tap each corner of the field</span>
+          <div class="seg" id="holeKindSeg" role="radiogroup" hidden>
+            <button type="button" data-v="drive">Drive through</button>
+            <button type="button" data-v="avoid">Go around</button>
+          </div>
           <div class="row gap">
             <button class="btn" type="button" id="drawUndo">Undo</button>
             <button class="btn" type="button" id="drawCancel">Cancel</button>

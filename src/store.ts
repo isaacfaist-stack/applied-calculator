@@ -13,6 +13,14 @@ export interface FieldRecord {
   source: string;
   createdAt: number;
   updatedAt: number;
+  /**
+   * Per polygon part, per exclusion (hole): 'drive' = drive through with
+   * product off (default), 'avoid' = go around it like a field edge.
+   */
+  holeKinds?: ('drive' | 'avoid')[][];
+  /** The boundary as first imported, kept so edits can be undone. */
+  originalGeometry?: BoundaryGeometry;
+  originalHoleKinds?: ('drive' | 'avoid')[][];
   /** Last plan settings used on this field, restored when reopened. */
   prefs?: FieldPrefs;
 }

@@ -5,9 +5,13 @@ import { cleanRing, normalizePolys, polysArea, SQ_M_PER_ACRE } from './engine/ge
 import { type LonLat, type Projection, projectionFor, ringToLocal } from './engine/projection';
 import type { BoundaryGeometry } from './io/import';
 
+export type ExclusionKind = 'drive' | 'avoid';
+
 export interface LocalField {
   proj: Projection;
   polys: Poly[];
+  /** Exclusions marked "go around" (trees, ponds), as their own polygons. */
+  avoid: Poly[];
   acres: number;
 }
 
@@ -16,16 +20,31 @@ export function geometryRings(g: BoundaryGeometry): LonLat[][][] {
   return polys.map((p) => p.map((ring) => ring.map((c) => [c[0], c[1]] as LonLat)));
 }
 
-export function toLocalField(g: BoundaryGeometry): LocalField {
+/**
+ * @param holeKinds per polygon part, per hole: whether each exclusion is
+ *   driven through (default) or gone around.
+ */
+export function toLocalField(g: BoundaryGeometry, holeKinds?: ExclusionKind[][]): LocalField {
   const polys = geometryRings(g);
   const proj = projectionFor(polys.map((p) => p[0]));
   const local: Poly[] = polys.map(([outer, ...holes]) => ({
     outer: cleanRing(ringToLocal(proj, outer)),
     holes: holes.map((h) => cleanRing(ringToLocal(proj, h))),
   }));
+  const avoid: Poly[] = [];
+  local.forEach((p, i) =>
+    p.holes.forEach((h, j) => {
+      if (holeKinds?.[i]?.[j] === 'avoid' && h.length >= 3) avoid.push({ outer: h, holes: [] });
+    }),
+  );
   // Union fixes self-intersections, orientation and overlapping parts.
   const normalized = normalizePolys(local);
-  return { proj, polys: normalized, acres: polysArea(normalized) / SQ_M_PER_ACRE };
+  return {
+    proj,
+    polys: normalized,
+    avoid: avoid.length ? normalizePolys(avoid) : [],
+    acres: polysArea(normalized) / SQ_M_PER_ACRE,
+  };
 }
 
 /** Rough center for distance sorting. */

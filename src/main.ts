@@ -4,10 +4,11 @@ import L from 'leaflet';
 import { registerSW } from 'virtual:pwa-register';
 
 import { M_PER_FT, SQ_M_PER_ACRE, ringArea } from './engine/geometry';
+import { simplifyRing } from './engine/plan';
 import { makeProjection } from './engine/projection';
 import type { CornerStyle, ShutoffMode } from './engine/plan';
 import { adviseRate, checkJob, densityFor } from './engine/rate';
-import { type LocalField, distanceMiles, geometryCenter, geometryRings, pointInGeometry, toLocalField } from './fieldModel';
+import { type ExclusionKind, type LocalField, distanceMiles, geometryCenter, geometryRings, pointInGeometry, toLocalField } from './fieldModel';
 import { fetchRemoteBoundary, listRemoteFields } from './integrations/boundaryServer';
 import { type BoundaryGeometry, importFiles } from './io/import';
 import { PolygonEditor } from './map/editor';
@@ -129,7 +130,13 @@ let showCoverage = true;
 let recommendedDensity: number | undefined;
 
 type EditMode = 'new' | 'edit' | 'hole';
-let editSession: { mode: EditMode; fieldId?: string; editor: PolygonEditor } | null = null;
+/** What an edit changes: a field part's outline, or one of its exclusions. */
+interface EditTarget {
+  part: number;
+  hole?: number;
+}
+let editSession: { mode: EditMode; fieldId?: string; editor: PolygonEditor; target?: EditTarget } | null = null;
+let newHoleKind: ExclusionKind = 'drive';
 
 const plan = {
   laps: 2,
@@ -290,6 +297,22 @@ function drawBoundary() {
   }
   for (const { field } of entries) {
     if (editSession?.fieldId === field.id) continue;
+    // Exclusions: dashed blue = drive through, shaded red = go around.
+    const kinds = holeKindsOf(field);
+    polygonsOf(field.geometry).forEach((p, i) =>
+      p.slice(1).forEach((ring, j) => {
+        const avoid = kinds[i][j] === 'avoid';
+        L.polygon(openRing(ring), {
+          color: avoid ? '#fca5a5' : '#93c5fd',
+          weight: 2,
+          dashArray: avoid ? undefined : '6 5',
+          fill: avoid,
+          fillColor: '#7f1d1d',
+          fillOpacity: 0.45,
+          interactive: false,
+        }).addTo(layers.boundary);
+      }),
+    );
     const poly = L.polygon(fieldLatLngs(field), { color: '#ffffff', weight: 3, fill: false, interactive: false });
     if (entries.length > 1) {
       poly.bindTooltip(esc(field.name), { direction: 'center', className: 'field-label', permanent: map.getZoom() >= 14 });
@@ -459,6 +482,7 @@ function schedulePlan() {
         id,
         fieldKey: entry.field.id + ':' + entry.field.updatedAt,
         polys: entry.local.polys,
+        avoid: entry.local.avoid,
         widthM: m.widthFt * M_PER_FT,
         sections: m.sections,
         headlandLaps: plan.laps,
@@ -919,7 +943,7 @@ function selectFields(ids: string[], opts: { keepView?: boolean } = {}) {
   entries = [];
   for (const f of picked) {
     try {
-      entries.push({ field: f, local: toLocalField(f.geometry), result: null });
+      entries.push({ field: f, local: toLocalField(f.geometry, holeKindsOf(f)), result: null });
     } catch (err) {
       toast(`Boundary problem in ${f.name}: ${(err as Error).message}`, true);
     }
@@ -933,6 +957,7 @@ function selectFields(ids: string[], opts: { keepView?: boolean } = {}) {
   saveSettings();
   // Boundary tools edit one field at a time.
   $('boundaryTools').hidden = entries.length !== 1;
+  renderBoundaryTools();
   if (!activeField) {
     $('fieldName').textContent = 'Choose a field';
     drawBoundary();
@@ -1175,38 +1200,90 @@ function largestPart(g: BoundaryGeometry): number {
   return areas.indexOf(Math.max(...areas));
 }
 
+/** Each part's exclusion kinds, shaped to match the field's geometry. */
+function holeKindsOf(f: FieldRecord): ExclusionKind[][] {
+  return polygonsOf(f.geometry).map((p, i) => p.slice(1).map((_, j) => f.holeKinds?.[i]?.[j] ?? 'drive'));
+}
+
+/** Keep the boundary as imported before the first change, so it can be restored. */
+function rememberOriginal(f: FieldRecord) {
+  if (f.originalGeometry || f.source === 'drawn') return;
+  f.originalGeometry = JSON.parse(JSON.stringify(f.geometry));
+  f.originalHoleKinds = holeKindsOf(f);
+}
+
+function saveFieldChange(f: FieldRecord, geometry: BoundaryGeometry, kinds: ExclusionKind[][]) {
+  rememberOriginal(f);
+  f.geometry = geometry;
+  f.holeKinds = kinds;
+  f.updatedAt = Date.now();
+  store.saveFields(fields);
+}
+
+/**
+ * Imported boundaries can have thousands of points, far too many handles to
+ * drag on a tablet. Thin them (Douglas–Peucker) until there are at most
+ * `max`, and report how far the outline may have moved.
+ */
+function thinForEditing(pts: L.LatLng[], max = 250): { pts: L.LatLng[]; tolerance: number } {
+  if (pts.length <= max) return { pts, tolerance: 0 };
+  const proj = makeProjection(pts[0].lng, pts[0].lat);
+  const local = pts.map((p) => proj.toLocal([p.lng, p.lat]));
+  for (const tol of [0.25, 0.5, 1, 1.5, 2, 3, 5, 8]) {
+    const thin = simplifyRing(local, tol);
+    if (thin.length <= max || tol === 8) {
+      return { pts: thin.map((q) => { const [lng, lat] = proj.toLonLat(q); return L.latLng(lat, lng); }), tolerance: tol };
+    }
+  }
+  return { pts, tolerance: 0 };
+}
+
 const EDIT_HINTS: Record<EditMode, string> = {
   new: 'Tap each corner of the field',
   edit: 'Drag corners to move · tap a corner to remove · tap a ◦ to add one',
   hole: 'Tap the corners of the area to leave out (waterway, farmstead, pond)',
 };
 
-function startEdit(mode: EditMode) {
+function startEdit(mode: EditMode, target?: EditTarget) {
   if (editSession) stopEdit();
   (document.getElementById('fieldsSheet') as HTMLDialogElement).close();
   let initial: L.LatLng[] = [];
+  let note = '';
   if (mode === 'edit') {
     if (!activeField) return;
-    const part = polygonsOf(activeField.geometry)[largestPart(activeField.geometry)];
-    initial = openRing(part[0]);
+    const parts = polygonsOf(activeField.geometry);
+    target = target ?? { part: largestPart(activeField.geometry) };
+    const ring = target.hole === undefined ? parts[target.part]?.[0] : parts[target.part]?.[target.hole + 1];
+    if (!ring) return;
+    const thinned = thinForEditing(openRing(ring));
+    initial = thinned.pts;
+    if (thinned.tolerance) {
+      note = `Simplified from ${ring.length - 1} points to ${thinned.pts.length} for editing (shape kept within ${fmt(thinned.tolerance, thinned.tolerance < 1 ? 2 : 0)} m).`;
+    }
   } else if (mode === 'hole' && !activeField) {
     return;
   }
+  const hint = (pts: L.LatLng[]) =>
+    pts.length < 3 ? `${EDIT_HINTS[mode]} (${pts.length} so far)` : `${EDIT_HINTS[mode]} — ${fmt(ringAcres(pts))} ac`;
   const editor = new PolygonEditor(map, initial, {
     appendOnMapTap: mode !== 'edit',
-    color: mode === 'hole' ? '#f87171' : '#22c55e',
+    color: mode === 'hole' || target?.hole !== undefined ? '#f87171' : '#22c55e',
     onChange: (pts) => {
-      $('drawHint').textContent =
-        pts.length < 3 ? `${EDIT_HINTS[mode]} (${pts.length} so far)` : `${EDIT_HINTS[mode]} — ${fmt(ringAcres(pts))} ac`;
+      $('drawHint').textContent = hint(pts);
     },
   });
-  editSession = { mode, fieldId: mode === 'new' ? undefined : activeField?.id, editor };
+  editSession = { mode, fieldId: mode === 'new' ? undefined : activeField?.id, editor, target };
+  newHoleKind = 'drive';
+  setSeg('holeKindSeg', newHoleKind);
+  $('holeKindSeg').hidden = mode !== 'hole';
   $('drawBar').hidden = false;
   layers.coverage.remove();
   layers.lines.remove();
   $('mapLegend').hidden = true;
   drawBoundary();
+  if (initial.length) map.fitBounds(L.latLngBounds(initial), { padding: [40, 40] });
   if (mode === 'new' && gps && !activeField) map.setView(toLatLng(gps), 16);
+  if (note) toast(note);
 }
 
 function stopEdit() {
@@ -1241,8 +1318,11 @@ function saveEdit() {
     return;
   }
   const parts = polygonsOf(f.geometry).map((p) => p.map((r) => r.slice()));
+  const kinds = holeKindsOf(f);
   if (mode === 'edit') {
-    parts[largestPart(f.geometry)][0] = closeRing(pts);
+    const t = editSession.target ?? { part: largestPart(f.geometry) };
+    if (t.hole === undefined) parts[t.part][0] = closeRing(pts);
+    else parts[t.part][t.hole + 1] = closeRing(pts);
   } else {
     // Add the exclusion to whichever part it sits in.
     const probe: [number, number] = [pts[0].lng, pts[0].lat];
@@ -1252,31 +1332,100 @@ function saveEdit() {
       return;
     }
     parts[idx].push(closeRing(pts));
+    kinds[idx].push(newHoleKind);
   }
-  f.geometry = geometryFrom(parts);
-  f.updatedAt = Date.now();
-  store.saveFields(fields);
+  saveFieldChange(f, geometryFrom(parts), kinds);
   stopEdit();
   selectField(f.id, { keepView: true });
   toast(mode === 'edit' ? 'Boundary saved' : 'Exclusion added');
 }
 
 $('drawBtn').addEventListener('click', () => startEdit('new'));
-$('editBoundaryBtn').addEventListener('click', () => startEdit('edit'));
 $('addHoleBtn').addEventListener('click', () => startEdit('hole'));
-$('clearHolesBtn').addEventListener('click', () => {
-  if (!activeField) return;
-  const parts = polygonsOf(activeField.geometry);
-  const count = parts.reduce((n, p) => n + p.length - 1, 0);
-  if (!count) {
-    toast('This field has no exclusions.');
-    return;
+onSeg('holeKindSeg', (v) => {
+  newHoleKind = v as ExclusionKind;
+  setSeg('holeKindSeg', newHoleKind);
+});
+
+/** Edit buttons for each part of the field, and the exclusion list. */
+function renderBoundaryTools() {
+  const f = entries.length === 1 ? entries[0].field : null;
+  if (!f) return;
+  const parts = polygonsOf(f.geometry);
+  const kinds = holeKindsOf(f);
+  $('partButtons').innerHTML =
+    parts.length === 1
+      ? '<button class="btn" type="button" data-edit-part="0">Edit boundary</button>'
+      : parts
+          .map(
+            (p, i) =>
+              `<button class="btn" type="button" data-edit-part="${i}">Edit part ${i + 1} · ${fmt(ringAcres(openRing(p[0])), 1)} ac</button>`,
+          )
+          .join('');
+  $('restoreBoundaryBtn').hidden = !f.originalGeometry;
+  const items: string[] = [];
+  parts.forEach((p, i) =>
+    p.slice(1).forEach((ring, j) => {
+      const kind = kinds[i][j];
+      items.push(`<li>
+        <div class="ex-head"><strong>Exclusion ${items.length + 1}</strong><span class="muted small">${fmt(ringAcres(openRing(ring)), 2)} ac</span>
+          <button class="btn ex-btn" type="button" data-ex-edit="${i}:${j}">Edit</button>
+          <button class="btn ex-btn danger-text" type="button" data-ex-del="${i}:${j}" aria-label="Delete exclusion ${items.length + 1}">✕</button>
+        </div>
+        <div class="seg" role="radiogroup">
+          <button type="button" role="radio" aria-checked="${kind === 'drive'}" data-ex-kind="${i}:${j}:drive">Drive through</button>
+          <button type="button" role="radio" aria-checked="${kind === 'avoid'}" data-ex-kind="${i}:${j}:avoid">Go around</button>
+        </div>
+      </li>`);
+    }),
+  );
+  $('exclusionList').innerHTML = items.length ? items.join('') : '<li class="muted small">None. Add waterways, trees, ponds or buildings that don\'t get product.</li>';
+}
+
+$('boundaryTools').addEventListener('click', (e) => {
+  const t = e.target as HTMLElement;
+  const f = activeField;
+  if (!f) return;
+  const editPart = t.closest<HTMLElement>('[data-edit-part]');
+  const exEdit = t.closest<HTMLElement>('[data-ex-edit]');
+  const exDel = t.closest<HTMLElement>('[data-ex-del]');
+  const exKind = t.closest<HTMLElement>('[data-ex-kind]');
+  if (editPart) {
+    startEdit('edit', { part: Number(editPart.dataset.editPart) });
+  } else if (exEdit) {
+    const [i, j] = exEdit.dataset.exEdit!.split(':').map(Number);
+    startEdit('edit', { part: i, hole: j });
+  } else if (exDel) {
+    const [i, j] = exDel.dataset.exDel!.split(':').map(Number);
+    if (!confirm('Delete this exclusion?')) return;
+    const parts = polygonsOf(f.geometry).map((p) => p.map((r) => r.slice()));
+    const kinds = holeKindsOf(f);
+    parts[i].splice(j + 1, 1);
+    kinds[i].splice(j, 1);
+    saveFieldChange(f, geometryFrom(parts), kinds);
+    selectField(f.id, { keepView: true });
+  } else if (exKind) {
+    const [i, j, kind] = exKind.dataset.exKind!.split(':');
+    const kinds = holeKindsOf(f);
+    kinds[Number(i)][Number(j)] = kind as ExclusionKind;
+    saveFieldChange(f, f.geometry, kinds);
+    selectField(f.id, { keepView: true });
+    toast(kind === 'avoid' ? 'Laps now go around this exclusion' : 'Passes now drive through this exclusion');
   }
-  if (!confirm(`Remove ${count} exclusion${count > 1 ? 's' : ''} from ${activeField.name}?`)) return;
-  activeField.geometry = geometryFrom(parts.map((p) => [p[0]]));
-  activeField.updatedAt = Date.now();
+});
+
+$('restoreBoundaryBtn').addEventListener('click', () => {
+  const f = activeField;
+  if (!f?.originalGeometry) return;
+  if (!confirm(`Put ${f.name} back the way it was imported? Your boundary edits and exclusions are removed.`)) return;
+  f.geometry = f.originalGeometry;
+  f.holeKinds = f.originalHoleKinds;
+  f.originalGeometry = undefined;
+  f.originalHoleKinds = undefined;
+  f.updatedAt = Date.now();
   store.saveFields(fields);
-  selectField(activeField.id, { keepView: true });
+  selectField(f.id, { keepView: true });
+  toast('Imported boundary restored');
 });
 $('renameFieldBtn').addEventListener('click', () => {
   if (!activeField) return;

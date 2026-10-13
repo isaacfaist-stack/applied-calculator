@@ -117,6 +117,13 @@ export const HELP: Record<string, HelpEntry> = {
       <p><b>Pivot on line:</b> turn on the lap line. Less doubled up, but leaves a small unapplied patch in each corner.</p>`,
     diagram: CORNER_DIAGRAM + LEGEND,
   },
+  exclusions: {
+    title: 'Exclusions',
+    body: `<p>Areas inside the field that don't get product. Each one is one of two kinds:</p>
+      <ul><li><b>Drive through:</b> you cross it with product off, like a grass waterway. Passes run straight across and shut off at its edge.</li>
+      <li><b>Go around:</b> you can't drive on it, like trees, a pond or buildings. Headland laps go around it just like the field edge, and passes stop at that headland.</li></ul>
+      <p>Neither kind counts toward surface acres.</p>`,
+  },
   width: {
     title: 'Working width',
     body: `<p>The width programmed in the controller, which is also your pass spacing (e.g. 70 ft for a spinner spread at 70 ft). The controller counts acres with this width, so use the same number here.</p>`,

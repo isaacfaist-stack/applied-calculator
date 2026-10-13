@@ -65,8 +65,18 @@ simulated plan across the boundary and adds up the overlap:
    (yellow), three or more times (orange), missed (red), and product thrown
    outside the boundary or onto excluded areas (blue).
 
-Holes in a boundary (waterways, farmsteads, ponds) are excluded from surface
-acres, and passes shut off across them.
+Holes in a boundary are **exclusions**, left out of surface acres. Each is
+either **drive through** (a grass waterway: passes cross it with product off)
+or **go around** (trees, a pond, buildings: headland laps wrap it like a field
+edge and passes stop at that headland).
+
+Shutoff settings only apply where a pass crosses a headland line. Where a
+section runs alongside a headland, an obstacle or the last pass with only part
+of its width over unapplied ground, it stays on rather than leave a strip.
+
+Imported boundaries can be edited piece by piece. Very detailed ones are
+thinned for editing (the app says how closely the shape is kept), and
+**Restore imported boundary** undoes all edits.
 
 ## Made for crews, not just one person
 

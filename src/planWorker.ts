@@ -9,6 +9,8 @@ export interface PlanRequest {
   id: number;
   fieldKey: string;
   polys: Poly[];
+  /** Exclusions to go around instead of drive through. */
+  avoid: Poly[];
   widthM: number;
   sections: number;
   headlandLaps: number;
@@ -57,7 +59,7 @@ self.onmessage = (e: MessageEvent<PlanRequest>) => {
     const key = [r.fieldKey, r.widthM, r.sections, r.headlandLaps, r.cornerStyle].join('|');
     let cached = prepared.get(key);
     if (!cached) {
-      cached = prepareField(r.polys, { widthM: r.widthM, sections: r.sections }, r.headlandLaps, r.cornerStyle);
+      cached = prepareField(r.polys, { widthM: r.widthM, sections: r.sections }, r.headlandLaps, r.cornerStyle, r.avoid);
       prepared.set(key, cached);
       if (prepared.size > MAX_PREPARED) prepared.delete(prepared.keys().next().value!);
     }

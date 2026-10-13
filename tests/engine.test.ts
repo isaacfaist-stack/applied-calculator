@@ -81,7 +81,13 @@ describe('plan', () => {
     ];
     expect(polysArea(field)).toBeCloseTo(400 * 400 - 100 * 100, 3);
     const r = plan(field, { widthM: 20, sections: 1 }, { headlandLaps: 1, cornerStyle: 'pivot', headingDeg: 0, shutoff: 'center' });
-    expect(r.passAppliedM2).toBeCloseTo(360 * 360 - 100 * 100, -1);
+    // Passes shut off across the hole. The two passes running right along its
+    // sides stay on (half over the hole) rather than leave a strip each side.
+    const need = 360 * 360 - 100 * 100;
+    expect(r.passAppliedM2).toBeGreaterThanOrEqual(need - 5);
+    expect(r.passAppliedM2).toBeLessThanOrEqual(need + 2 * 20 * 100);
+    const cov = computeCoverage(field, r.swaths, 20);
+    expect(cov.skipM2 / r.surfaceM2).toBeLessThan(0.01);
   });
 
   it('optimizer finds the heading aligned with a rotated rectangle', () => {
@@ -95,6 +101,33 @@ describe('plan', () => {
     // Rectangle long side points 30deg counter-clockwise from north => heading 150 (or 60).
     const d = Math.min(Math.abs(best.headingDeg - 150), Math.abs(best.headingDeg - 60));
     expect(d).toBeLessThan(1.5);
+  });
+});
+
+describe('exclusions: drive through vs go around', () => {
+  // 400 x 400 m field with a 100 x 100 m block of trees in the middle.
+  const trees = [{ x: 150, y: 150 }, { x: 250, y: 150 }, { x: 250, y: 250 }, { x: 150, y: 250 }];
+  const field: Poly[] = [
+    { outer: [{ x: 0, y: 0 }, { x: 400, y: 0 }, { x: 400, y: 400 }, { x: 0, y: 400 }], holes: [trees] },
+  ];
+  const opts = { headlandLaps: 2, cornerStyle: 'pivot' as const, headingDeg: 0, shutoff: 'center' as const };
+  const m = { widthM: 20, sections: 1 };
+
+  it('drive through: no laps around it, passes run across with product off', () => {
+    const r = plan(field, m, opts);
+    expect(r.headlandPaths.length).toBe(2); // only the outer boundary
+    expect(r.surfaceM2).toBeCloseTo(400 * 400 - 100 * 100, 3);
+  });
+
+  it('go around: headland laps wrap the trees and passes stop at their headland', () => {
+    const r = plan(field, m, opts, [{ outer: trees, holes: [] }]);
+    expect(r.headlandPaths.length).toBe(4); // 2 laps around the edge + 2 around the trees
+    expect(r.surfaceM2).toBeCloseTo(400 * 400 - 100 * 100, 3);
+    // Interior: field minus 2 laps (360 → 320 square) minus trees grown by 2 laps (140 square).
+    expect(r.interiorM2).toBeCloseTo(320 * 320 - 180 * 180, -2);
+    // Nothing is applied on the trees either way, and coverage stays complete.
+    const cov = computeCoverage(field, r.swaths, 20);
+    expect(cov.skipM2 / r.surfaceM2).toBeLessThan(0.01);
   });
 });
 
