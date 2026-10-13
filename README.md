@@ -32,6 +32,10 @@ averages under the requested rate. Each machine can carry its decrease (e.g.
 4% under, or enter the requested and job-average rates and it works it out),
 and every answer accounts for it.
 
+**Machine & calibration window:** machine setup (width, sections, bias,
+average rate decrease) and the finished-job check live in their own window,
+opened with 🚜 in the top bar or the Machine row on the main screen.
+
 **Check a finished job:** enter the load, what's left, and the monitor's
 applied acres and average rate. The app separates rate tracking from what
 remains, shows the true product density or the machine bias that would explain

@@ -45,6 +45,9 @@ function num(input: HTMLInputElement): number | undefined {
 let toastTimer = 0;
 function toast(msg: string, error = false) {
   const t = $('toast');
+  // An open window sits above everything else, so show the message inside it.
+  const host = document.querySelector<HTMLDialogElement>('dialog[open]') ?? document.body;
+  if (t.parentElement !== host) host.appendChild(t);
   t.textContent = msg;
   t.classList.toggle('error', error);
   t.hidden = false;
@@ -878,12 +881,27 @@ $('ckResult').addEventListener('click', (e) => {
   renderResults();
 });
 
-$('checkCard').addEventListener('toggle', () => {
-  if (($('checkCard') as HTMLDetailsElement).open) {
+// Machine & calibration window -------------------------------------------------
+
+function showMachineTab(tab: 'machine' | 'calibrate') {
+  setSeg('machineTabs', tab);
+  $('machinePane').hidden = tab !== 'machine';
+  $('calibratePane').hidden = tab !== 'calibrate';
+  if (tab === 'calibrate') {
     prefillJobCheck();
     renderJobCheck();
   }
-});
+}
+
+function openMachineSheet(tab: 'machine' | 'calibrate' = 'machine') {
+  syncMachineUi();
+  showMachineTab(tab);
+  openSheet('machineSheet');
+}
+
+$('machineRowBtn').addEventListener('click', () => openMachineSheet());
+$('machineBtn').addEventListener('click', () => openMachineSheet());
+onSeg('machineTabs', (v) => showMachineTab(v as 'machine' | 'calibrate'));
 for (const id of ['ckLoaded', 'ckLeft', 'ckAcres', 'ckAchieved', 'ckRequested', 'ckProgDensity', 'ckTrueDensity']) {
   $(id).addEventListener('input', renderJobCheck);
 }

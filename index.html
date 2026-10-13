@@ -21,6 +21,7 @@
       </button>
       <div class="topbar-right">
         <span class="gps-chip" id="gpsChip" hidden></span>
+        <button class="icon-btn" id="machineBtn" type="button" aria-label="Machine and calibration">🚜</button>
         <button class="icon-btn" id="settingsBtn" type="button" aria-label="Settings">⚙︎</button>
       </div>
     </header>
@@ -144,76 +145,12 @@
           </div>
         </details>
 
-        <!-- Machine -->
-        <details class="card fold" id="machineCard" open>
-          <summary><h2>Machine</h2><span class="muted sum-hint" id="machineSummary"></span></summary>
-          <div class="ctl col">
-            <select id="machineSelect" aria-label="Machine"></select>
-          </div>
-          <div class="grid2">
-            <label class="field">
-              <span>Working width</span>
-              <div class="input-unit">
-                <input id="widthInput" type="number" inputmode="decimal" min="1" step="any" />
-                <span class="suffix">ft</span>
-              </div>
-            </label>
-            <label class="field">
-              <span>Sections</span>
-              <div class="input-unit">
-                <input id="sectionsInput" type="number" inputmode="numeric" min="1" max="48" step="1" />
-                <span class="suffix">#</span>
-              </div>
-            </label>
-          </div>
-          <div class="ctl col">
-            <span class="ctl-label">Machine bias (shim) — what this machine really puts out vs. the monitor</span>
-            <div class="seg" id="biasDirSeg" role="radiogroup">
-              <button type="button" data-v="more">Puts out more</button>
-              <button type="button" data-v="less">Puts out less</button>
-            </div>
-            <div class="input-unit">
-              <input id="biasInput" type="number" inputmode="decimal" min="0" max="50" step="any" placeholder="0" />
-              <span class="suffix">%</span>
-            </div>
-            <p class="muted small" id="biasNote">
-              From experience or a catch test. For example, if the monitor says 10,000 lb went out but 10,300 lb left the
-              bin, pick "Puts out more" and enter 3.
-            </p>
-          </div>
-          <div class="ctl col">
-            <span class="ctl-label">Average rate decrease — how far under the requested rate this machine averages</span>
-            <div class="input-unit">
-              <input id="trackingInput" type="number" inputmode="decimal" min="-20" max="50" step="any" placeholder="0" />
-              <span class="suffix">% under</span>
-            </div>
-            <p class="muted small">
-              When the belt can't keep up with speed changes, the monitor's job average comes in under the request. Or work
-              it out from a job summary:
-            </p>
-            <div class="grid2 tight">
-              <label class="field">
-                <span>Requested</span>
-                <div class="input-unit">
-                  <input id="trackReq" type="number" inputmode="decimal" min="0" step="any" placeholder="250" />
-                  <span class="suffix">/ac</span>
-                </div>
-              </label>
-              <label class="field">
-                <span>Job average</span>
-                <div class="input-unit">
-                  <input id="trackAvg" type="number" inputmode="decimal" min="0" step="any" placeholder="240" />
-                  <span class="suffix">/ac</span>
-                </div>
-              </label>
-            </div>
-          </div>
-          <div class="row gap wrap">
-            <button class="btn" type="button" id="addMachineBtn">Add machine</button>
-            <button class="btn" type="button" id="renameMachineBtn">Rename</button>
-            <button class="btn danger-text" type="button" id="deleteMachineBtn">Delete</button>
-          </div>
-        </details>
+        <!-- Machine (settings live in the Machine & calibration window) -->
+        <button class="card machine-row" type="button" id="machineRowBtn">
+          <span class="mr-label">Machine</span>
+          <span class="mr-summary" id="machineSummary"></span>
+          <span class="mr-chev" aria-hidden="true">›</span>
+        </button>
 
         <!-- Breakdown -->
         <details class="card fold" id="breakdownCard" open hidden>
@@ -265,69 +202,6 @@
           <div class="mid-answer" id="midAnswer"></div>
         </details>
 
-        <!-- After the job -->
-        <details class="card fold" id="checkCard">
-          <summary><h2>Check a finished job</h2><span class="muted">Calibrate</span></summary>
-          <p class="muted small">
-            Enter what really happened to work out this machine's rate tracking and whether the density or a bias needs
-            changing.
-          </p>
-          <div class="grid2">
-            <label class="field">
-              <span>Product loaded</span>
-              <div class="input-unit">
-                <input id="ckLoaded" type="number" inputmode="decimal" min="0" step="any" />
-                <select id="ckLoadedAs" aria-label="Loaded as">
-                  <option value="product" id="ckLoadedUnitOpt">lb</option>
-                  <option value="acres">ac worth</option>
-                </select>
-              </div>
-            </label>
-            <label class="field">
-              <span>Left over (weighed if you can)</span>
-              <div class="input-unit">
-                <input id="ckLeft" type="number" inputmode="decimal" min="0" step="any" placeholder="0" />
-                <span class="suffix" id="ckLeftUnit">lb</span>
-              </div>
-            </label>
-            <label class="field">
-              <span>Applied acres (monitor)</span>
-              <div class="input-unit">
-                <input id="ckAcres" type="number" inputmode="decimal" min="0" step="any" />
-                <span class="suffix">ac</span>
-              </div>
-            </label>
-            <label class="field">
-              <span>Average applied rate (monitor)</span>
-              <div class="input-unit">
-                <input id="ckAchieved" type="number" inputmode="decimal" min="0" step="any" />
-                <span class="suffix" id="ckAchievedUnit">lb/ac</span>
-              </div>
-            </label>
-            <label class="field">
-              <span>Requested rate</span>
-              <div class="input-unit">
-                <input id="ckRequested" type="number" inputmode="decimal" min="0" step="any" />
-                <span class="suffix" id="ckRequestedUnit">lb/ac</span>
-              </div>
-            </label>
-            <label class="field">
-              <span>Density programmed <em>(if used)</em></span>
-              <div class="input-unit">
-                <input id="ckProgDensity" type="number" inputmode="decimal" min="0" step="any" />
-                <span class="suffix">lb/ft³</span>
-              </div>
-            </label>
-            <label class="field">
-              <span>Product's true density <em>(if known)</em></span>
-              <div class="input-unit">
-                <input id="ckTrueDensity" type="number" inputmode="decimal" min="0" step="any" />
-                <span class="suffix">lb/ft³</span>
-              </div>
-            </label>
-          </div>
-          <div id="ckResult"></div>
-        </details>
 
         <p class="footnote muted small">
           Applied acres = working width × distance with product on — what your rate controller counts. Estimates
@@ -400,6 +274,149 @@
       </div>
       <input class="search" id="remoteSearch" type="search" placeholder="Search grower or field" />
       <ul class="field-list" id="remoteList"></ul>
+    </dialog>
+
+
+    <!-- Machine & calibration -->
+    <dialog class="sheet" id="machineSheet">
+      <div class="sheet-head">
+        <h2>Machine &amp; calibration</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
+      </div>
+      <div class="seg sheet-tabs" id="machineTabs" role="tablist">
+        <button type="button" data-v="machine">Machine</button>
+        <button type="button" data-v="calibrate">Calibrate</button>
+      </div>
+      <section class="tab-pane" id="machinePane">
+          <div class="ctl col">
+            <select id="machineSelect" aria-label="Machine"></select>
+          </div>
+          <div class="grid2">
+            <label class="field">
+              <span>Working width</span>
+              <div class="input-unit">
+                <input id="widthInput" type="number" inputmode="decimal" min="1" step="any" />
+                <span class="suffix">ft</span>
+              </div>
+            </label>
+            <label class="field">
+              <span>Sections</span>
+              <div class="input-unit">
+                <input id="sectionsInput" type="number" inputmode="numeric" min="1" max="48" step="1" />
+                <span class="suffix">#</span>
+              </div>
+            </label>
+          </div>
+          <div class="ctl col">
+            <span class="ctl-label">Machine bias (shim) — what this machine really puts out vs. the monitor</span>
+            <div class="seg" id="biasDirSeg" role="radiogroup">
+              <button type="button" data-v="more">Puts out more</button>
+              <button type="button" data-v="less">Puts out less</button>
+            </div>
+            <div class="input-unit">
+              <input id="biasInput" type="number" inputmode="decimal" min="0" max="50" step="any" placeholder="0" />
+              <span class="suffix">%</span>
+            </div>
+            <p class="muted small" id="biasNote">
+              From experience or a catch test. For example, if the monitor says 10,000 lb went out but 10,300 lb left the
+              bin, pick "Puts out more" and enter 3.
+            </p>
+          </div>
+          <div class="ctl col">
+            <span class="ctl-label">Average rate decrease — how far under the requested rate this machine averages</span>
+            <div class="input-unit">
+              <input id="trackingInput" type="number" inputmode="decimal" min="-20" max="50" step="any" placeholder="0" />
+              <span class="suffix">% under</span>
+            </div>
+            <p class="muted small">
+              When the belt can't keep up with speed changes, the monitor's job average comes in under the request. Or work
+              it out from a job summary:
+            </p>
+            <div class="grid2 tight">
+              <label class="field">
+                <span>Requested</span>
+                <div class="input-unit">
+                  <input id="trackReq" type="number" inputmode="decimal" min="0" step="any" placeholder="250" />
+                  <span class="suffix">/ac</span>
+                </div>
+              </label>
+              <label class="field">
+                <span>Job average</span>
+                <div class="input-unit">
+                  <input id="trackAvg" type="number" inputmode="decimal" min="0" step="any" placeholder="240" />
+                  <span class="suffix">/ac</span>
+                </div>
+              </label>
+            </div>
+          </div>
+          <div class="row gap wrap">
+            <button class="btn" type="button" id="addMachineBtn">Add machine</button>
+            <button class="btn" type="button" id="renameMachineBtn">Rename</button>
+            <button class="btn danger-text" type="button" id="deleteMachineBtn">Delete</button>
+          </div>
+        </section>
+      <section class="tab-pane" id="calibratePane" hidden>
+        <h3>Check a finished job</h3>
+          <p class="muted small">
+            Enter what really happened to work out this machine's rate tracking and whether the density or a bias needs
+            changing.
+          </p>
+          <div class="grid2">
+            <label class="field">
+              <span>Product loaded</span>
+              <div class="input-unit">
+                <input id="ckLoaded" type="number" inputmode="decimal" min="0" step="any" />
+                <select id="ckLoadedAs" aria-label="Loaded as">
+                  <option value="product" id="ckLoadedUnitOpt">lb</option>
+                  <option value="acres">ac worth</option>
+                </select>
+              </div>
+            </label>
+            <label class="field">
+              <span>Left over (weighed if you can)</span>
+              <div class="input-unit">
+                <input id="ckLeft" type="number" inputmode="decimal" min="0" step="any" placeholder="0" />
+                <span class="suffix" id="ckLeftUnit">lb</span>
+              </div>
+            </label>
+            <label class="field">
+              <span>Applied acres (monitor)</span>
+              <div class="input-unit">
+                <input id="ckAcres" type="number" inputmode="decimal" min="0" step="any" />
+                <span class="suffix">ac</span>
+              </div>
+            </label>
+            <label class="field">
+              <span>Average applied rate (monitor)</span>
+              <div class="input-unit">
+                <input id="ckAchieved" type="number" inputmode="decimal" min="0" step="any" />
+                <span class="suffix" id="ckAchievedUnit">lb/ac</span>
+              </div>
+            </label>
+            <label class="field">
+              <span>Requested rate</span>
+              <div class="input-unit">
+                <input id="ckRequested" type="number" inputmode="decimal" min="0" step="any" />
+                <span class="suffix" id="ckRequestedUnit">lb/ac</span>
+              </div>
+            </label>
+            <label class="field">
+              <span>Density programmed <em>(if used)</em></span>
+              <div class="input-unit">
+                <input id="ckProgDensity" type="number" inputmode="decimal" min="0" step="any" />
+                <span class="suffix">lb/ft³</span>
+              </div>
+            </label>
+            <label class="field">
+              <span>Product's true density <em>(if known)</em></span>
+              <div class="input-unit">
+                <input id="ckTrueDensity" type="number" inputmode="decimal" min="0" step="any" />
+                <span class="suffix">lb/ft³</span>
+              </div>
+            </label>
+          </div>
+          <div id="ckResult"></div>
+        </section>
     </dialog>
 
     <!-- Settings sheet -->

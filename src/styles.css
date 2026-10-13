@@ -780,7 +780,7 @@ button:focus-visible {
 }
 
 .toast {
-  position: absolute;
+  position: fixed;
   left: 50%;
   bottom: calc(72px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
@@ -1137,4 +1137,56 @@ details.card.fold[open] summary {
 details.card.fold:not([open]) {
   padding-top: 10px;
   padding-bottom: 10px;
+}
+
+/* Machine row on the main panel ------------------------------------------------ */
+
+.machine-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  min-height: 64px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.machine-row:active {
+  background: var(--surface-2);
+}
+
+.mr-label {
+  font-weight: 700;
+  font-size: 1.05rem;
+  flex: none;
+}
+
+.mr-summary {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  color: var(--muted);
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mr-chev {
+  flex: none;
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.sheet-tabs {
+  margin-bottom: 16px;
+}
+
+.tab-pane h3:first-child {
+  margin-top: 0;
 }
