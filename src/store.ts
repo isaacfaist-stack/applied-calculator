@@ -67,6 +67,8 @@ export interface Settings {
   /** Google Maps Platform key (Map Tiles API); overrides the build-time key. */
   googleKey?: string;
   imagery?: Imagery;
+  /** First-run setup finished or skipped. */
+  setupDone?: boolean;
 }
 
 const KEYS = { fields: 'aac.fields.v1', machines: 'aac.machines.v1', settings: 'aac.settings.v1' };
@@ -124,7 +126,7 @@ export const store = {
   },
   settings(): Settings {
     return {
-      product: { rate: 200, unit: 'lb' },
+      product: { rate: 0, unit: 'lb' },
       theme: 'auto',
       ...read<Partial<Settings>>(KEYS.settings, {}),
     } as Settings;

@@ -712,15 +712,27 @@ button:focus-visible {
 }
 
 .map-btn {
-  width: 52px;
-  height: 52px;
+  width: 64px;
+  height: 60px;
   border-radius: 14px;
   border: 0;
   background: rgb(255 255 255 / 94%);
   color: #111;
-  font-size: 1.5rem;
+  font-size: 1.4rem;
+  line-height: 1;
   box-shadow: 0 2px 8px rgb(0 0 0 / 30%);
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.map-btn small {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .map-btn[aria-pressed='false'] {
@@ -1135,4 +1147,303 @@ details.card.fold:not([open]) {
 
 .tab-pane h3:first-child {
   margin-top: 0;
+}
+
+/* ⓘ help buttons ----------------------------------------------------------- */
+
+.info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-left: 4px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--muted);
+  background: transparent;
+  color: var(--muted);
+  font: italic 700 0.8rem Georgia, 'Times New Roman', serif;
+  vertical-align: middle;
+  cursor: pointer;
+  flex: none;
+}
+
+.info:active {
+  background: var(--surface-2);
+}
+
+/* Bigger invisible tap target around the small circle. */
+.info {
+  position: relative;
+}
+.info::before {
+  content: '';
+  position: absolute;
+  inset: -9px;
+}
+
+.answer-label .info {
+  width: 22px;
+  height: 22px;
+}
+
+/* Numbered steps --------------------------------------------------------- */
+
+.step {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 2px solid var(--line);
+  font-weight: 800;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.step.done {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.field-current {
+  font-size: 1.05rem;
+  margin-bottom: 12px;
+}
+
+#boundaryTools h3 {
+  margin-top: 18px;
+}
+
+.checklist {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: grid;
+  gap: 10px;
+}
+
+.checklist li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.05rem;
+}
+
+.checklist .ckmark {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+}
+
+.checklist li.done .ckmark {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.checklist li.done {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.small-btn {
+  min-height: 36px;
+  padding: 0 12px;
+  margin-left: auto;
+  font-size: 0.9rem;
+}
+
+/* Sanity warning ----------------------------------------------------------- */
+
+.answer-warn {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 2px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+  font-size: 0.92rem;
+}
+
+.answer-warn.severe {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+}
+
+.answer-warn ul {
+  margin: 6px 0 0;
+  padding-left: 20px;
+}
+
+.answer-warn li + li {
+  margin-top: 4px;
+}
+
+/* Help window ------------------------------------------------------------ */
+
+dialog.help {
+  width: min(520px, 94vw);
+}
+
+.help-diagram svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 220px;
+  color: var(--text);
+}
+
+.help-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: center;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 6px 0 4px;
+}
+
+.help-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.help-legend i {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.help-body {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.help-body ul {
+  padding-left: 20px;
+}
+
+.help-body li + li {
+  margin-top: 6px;
+}
+
+/* Settings: advanced ------------------------------------------------------- */
+
+details.advanced {
+  margin-top: 24px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+details.advanced > summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--muted);
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+}
+
+details.advanced h4 {
+  margin: 16px 0 6px;
+}
+
+/* Setup wizard --------------------------------------------------------------- */
+
+dialog.setup {
+  width: min(560px, 94vw);
+}
+
+.setup-steps {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 0;
+  margin: 0 0 18px;
+  counter-reset: s;
+}
+
+.setup-steps li {
+  counter-increment: s;
+  text-align: center;
+  padding: 8px 4px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.setup-steps li::before {
+  content: counter(s) '. ';
+}
+
+.setup-steps li.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.setup-steps li.done::before {
+  content: '✓ ';
+}
+
+.setup-pane {
+  display: grid;
+  gap: 12px;
+}
+
+.setup-pane > p {
+  margin: 0;
+}
+
+.setup-choices {
+  display: grid;
+  gap: 10px;
+}
+
+.choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-height: 64px;
+}
+
+.choice:active {
+  border-color: var(--accent);
+}
+
+.setup-error {
+  margin: 12px 0 0;
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.setup-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.setup-nav #setupNext {
+  margin-left: auto;
+  min-width: 140px;
 }

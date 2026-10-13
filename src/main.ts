@@ -19,6 +19,8 @@ import {
   testGoogleKey,
 } from './map/googleTiles';
 import type { PlanRequest, PlanResponse } from './planWorker';
+import { DEMO_FIELD } from './demoField';
+import { HELP } from './help';
 import { type FieldRecord, type Imagery, type MachineRecord, type Settings, DEFAULT_MACHINES, store, uid } from './store';
 
 registerSW({ immediate: true });
@@ -142,6 +144,15 @@ function activeMachine(): MachineRecord {
 /** Active machine's bias as a fraction (+0.03 = puts out 3% more). */
 function machineBias(): number {
   return (activeMachine().biasPct ?? 0) / 100;
+}
+
+/** Density adjustment only makes sense for dry product sold by weight. */
+function isDryUnit(unit: string): boolean {
+  return unit === 'lb' || unit === 'ton';
+}
+
+function densityMode(): boolean {
+  return settings.product.adjustBy === 'density' && isDryUnit(settings.product.unit);
 }
 
 /** Active machine's achieved ÷ requested rate (0.96 = averages 4% under). */
@@ -495,9 +506,9 @@ const SHUTOFF_LABELS: Record<ShutoffMode, string> = { noskip: 'no skips', center
 function updateSummaries() {
   const p = settings.product;
   const m = activeMachine();
-  const product = [`${fmt(p.rate || 0, p.rate >= 100 ? 0 : 1)} ${p.unit}/ac`];
-  if (p.loaded) product.push(p.loadedAs === 'acres' ? `${fmt(p.loaded, 2)} ac worth` : fmtQty(p.loaded, p.unit));
-  product.push(p.adjustBy === 'density' ? `density${p.density ? ` ${fmt(p.density, 1)}` : ''}` : 'by rate');
+  const product = [p.rate > 0 ? `${fmt(p.rate, p.rate >= 100 ? 0 : 1)} ${p.unit}/ac` : 'no rate yet'];
+  if (p.loaded) product.push(p.loadedAs === 'acres' ? `${fmt(p.loaded, 2)} acres' worth` : fmtQty(p.loaded, p.unit));
+  product.push(densityMode() ? `density${p.density ? ` ${fmt(p.density, 1)}` : ''}` : 'by rate');
   $('productSummary').textContent = product.join(' · ');
 
   $('planSummary').textContent = [
@@ -510,7 +521,26 @@ function updateSummaries() {
   $('breakdownSummary').textContent = result
     ? `${fmtPct(result.appliedM2 / result.surfaceM2 - 1)} overlap · ${fmt(result.coverage.overlapAreaM2 / SQ_M_PER_ACRE)} ac doubled`
     : '';
-  $('boundarySummary').textContent = activeField ? 'edit · exclusions · rename' : '';
+  const acres = result
+    ? result.surfaceM2 / SQ_M_PER_ACRE
+    : entries.reduce((sum, e) => sum + e.local.acres, 0);
+  const names = entries.map((e) => e.field.name);
+  $('fieldSummary').textContent = entries.length
+    ? `${entries.length > 1 ? `${entries.length} fields` : names[0]} · ${fmt(acres)} ac`
+    : 'not chosen';
+  $('fieldCurrent').innerHTML = entries.length
+    ? `<strong>${esc(names.join(' + '))}</strong> · ${fmt(acres)} ac${entries.length === 1 && entries[0].field.grower ? ` · ${esc(entries[0].field.grower)}` : ''}`
+    : 'No field chosen yet.';
+
+  // Step badges and the empty-state checklist.
+  const done1 = entries.length > 0;
+  const done2 = p.rate > 0 && (!densityMode() || !!(p.density && p.density > 0));
+  const done3 = done1 && !!result;
+  [done1, done2, done3].forEach((d, i) => {
+    $(`step${i + 1}`).classList.toggle('done', d);
+    $(`step${i + 1}`).textContent = d ? '✓' : String(i + 1);
+    $(`ck${i + 1}`).classList.toggle('done', d);
+  });
 }
 
 function renderResults() {
@@ -537,9 +567,38 @@ function renderResults() {
   const a = adviseRate({ surfaceAc, appliedAc, targetRate: rate, loaded, bias, tracking });
   const answerChange = $('answerChange');
   const kv = $('productKv');
-  const byDensity = settings.product.adjustBy === 'density';
+  const byDensity = densityMode();
   const density = settings.product.density;
-  $('answerLabel').textContent = byDensity ? 'Set controller density to' : 'Set controller rate to';
+  $('answerLabel').textContent = byDensity ? 'On the controller, set Density to' : 'On the controller, set Rate to';
+  const warn = $('answerWarn');
+  warn.hidden = true;
+  /** Flag big changes: they usually mean an input is wrong, not the field. */
+  const checkChange = (chg: number) => {
+    if (Math.abs(chg) <= 0.1) return;
+    const reasons: string[] = [];
+    if (loaded && rate > 0) {
+      const givenAc = loaded / rate;
+      const off = givenAc / surfaceAc - 1;
+      if (Math.abs(off) > 0.1) {
+        reasons.push(
+          `Product given is ${fmt(givenAc, 1)} ac worth for ${fmt(surfaceAc, 1)} surface ac (${fmtPct(off)}). Right field${entries.length > 1 ? 's' : ''} and amount?`,
+        );
+      }
+    }
+    if (byDensity) reasons.push(`True density ${fmt(density ?? 0, 1)} lb/ft³: blend tickets can be several pounds off.`);
+    if (Math.abs(bias) >= 0.05 || Math.abs(1 - tracking) >= 0.05) {
+      reasons.push(
+        `Machine corrections are large (bias ${fmtPct(bias)}, rate decrease ${fmt((1 - tracking) * 100, 1)}%). Check them with 🚜.`,
+      );
+    }
+    reasons.push(`Target rate ${fmt(rate, 1)} ${unit}/ac and the right unit.`);
+    const severe = Math.abs(chg) > 0.25;
+    warn.className = `answer-warn${severe ? ' severe' : ''}`;
+    warn.innerHTML = `<strong>⚠ ${severe ? 'This is a very big change' : 'This is a big change'} (${fmtPct(chg)}). Double-check before you set it:</strong><ul>${reasons
+      .map((r) => `<li>${esc(r)}</li>`)
+      .join('')}</ul>`;
+    warn.hidden = false;
+  };
   recommendedDensity = undefined;
   const blank = (msg: string) => {
     $('answerRate').textContent = '–';
@@ -571,6 +630,7 @@ function renderResults() {
             ? `${fmtPct(change)} — raise to use it up`
             : 'No change needed';
       $('answerSub').textContent = why;
+      checkChange(change);
     } else if (!(density && density > 0)) {
       blank('Enter the product density');
     } else {
@@ -588,7 +648,8 @@ function renderResults() {
           : dir === 'up'
             ? `${fmtPct(dChange)} — lower density to use it up`
             : 'No change needed';
-      $('answerSub').textContent = `Leave the rate at ${fmt(rate, rate >= 100 ? 0 : 1)} ${unit}/ac. ${why}`;
+      $('answerSub').textContent = `Leave Rate at ${fmt(rate, rate >= 100 ? 0 : 1)} ${unit}/ac. ${why}`;
+      checkChange(dChange);
     }
 
     const rows: [string, string, string?][] = [
@@ -699,7 +760,7 @@ function prefillJobCheck() {
   setIfEmpty('ckLoaded', p.loaded);
   setIfEmpty('ckRequested', p.rate);
   setIfEmpty('ckAcres', result ? result.appliedM2 / SQ_M_PER_ACRE : undefined);
-  if (p.adjustBy === 'density') {
+  if (densityMode()) {
     setIfEmpty('ckTrueDensity', p.density);
     setIfEmpty('ckProgDensity', recommendedDensity);
   }
@@ -871,7 +932,7 @@ function selectFields(ids: string[], opts: { keepView?: boolean } = {}) {
   settings.lastFieldIds = entries.map((e) => e.field.id);
   saveSettings();
   // Boundary tools edit one field at a time.
-  $('boundaryCard').hidden = entries.length !== 1;
+  $('boundaryTools').hidden = entries.length !== 1;
   if (!activeField) {
     $('fieldName').textContent = 'Choose a field';
     drawBoundary();
@@ -1053,8 +1114,7 @@ function addFields(items: { name: string; grower?: string; farm?: string; geomet
   return added;
 }
 
-$('fileInput').addEventListener('change', async (e) => {
-  const input = e.target as HTMLInputElement;
+async function importPicked(input: HTMLInputElement) {
   const files = Array.from(input.files ?? []);
   input.value = '';
   if (!files.length) return;
@@ -1072,7 +1132,8 @@ $('fileInput').addEventListener('change', async (e) => {
   } catch (err) {
     toast((err as Error).message, true);
   }
-});
+}
+$('fileInput').addEventListener('change', (e) => void importPicked(e.target as HTMLInputElement));
 
 // ---------------------------------------------------------------------------
 // Drawing and editing boundaries on the satellite map
@@ -1465,7 +1526,9 @@ $('deleteMachineBtn').addEventListener('click', () => {
 });
 
 function syncAdjustUi() {
-  const byDensity = settings.product.adjustBy === 'density';
+  const byDensity = densityMode();
+  // Liquids and counts are adjusted by rate only.
+  $('adjustRow').hidden = !isDryUnit(settings.product.unit);
   setSeg('adjustSeg', byDensity ? 'density' : 'rate');
   $('densityBlock').hidden = !byDensity;
 }
@@ -1521,23 +1584,27 @@ onSeg('themeSeg', (v) => {
   saveSettings();
   applyTheme();
 });
-onSeg('imagerySeg', (v) => setSeg('imagerySeg', v));
-$('saveGoogleBtn').addEventListener('click', () => {
-  const key = ($('googleKey') as HTMLInputElement).value.trim();
-  const chosen = $('imagerySeg').querySelector<HTMLElement>('[aria-checked="true"]')?.dataset.v as Imagery | undefined;
-  if (key !== (settings.googleKey ?? '')) clearGoogleSession();
-  settings.googleKey = key || undefined;
-  settings.imagery = chosen ?? settings.imagery;
+onSeg('imagerySeg', (v) => {
+  setSeg('imagerySeg', v);
+  settings.imagery = v as Imagery;
   saveSettings();
   void setBaseLayer();
   const shown = effectiveImagery();
-  toast(
-    settings.imagery !== 'esri' && shown === 'esri'
-      ? navigator.onLine
-        ? 'Saved. Add a Google Maps API key to see Google imagery.'
-        : 'Saved. Google imagery will load when you have signal.'
-      : `Showing ${IMAGERY_NAMES[shown]}`,
-  );
+  if (shown !== settings.imagery) {
+    toast(
+      navigator.onLine
+        ? 'Google imagery needs a key: Settings → Advanced.'
+        : 'No signal: showing saved Esri imagery until you have signal.',
+    );
+  }
+});
+$('saveGoogleBtn').addEventListener('click', () => {
+  const key = ($('googleKey') as HTMLInputElement).value.trim();
+  if (key !== (settings.googleKey ?? '')) clearGoogleSession();
+  settings.googleKey = key || undefined;
+  saveSettings();
+  void setBaseLayer();
+  toast(key ? 'Key saved' : 'Using the key built into the app');
 });
 
 $('testGoogleBtn').addEventListener('click', async () => {
@@ -1611,6 +1678,166 @@ $('restoreInput').addEventListener('change', async (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// ⓘ help
+
+document.addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLElement>('[data-help]');
+  if (!b) return;
+  // Don't let a tap on ⓘ inside a label focus the input or toggle a section.
+  e.preventDefault();
+  e.stopPropagation();
+  const h = HELP[b.dataset.help!];
+  if (!h) return;
+  $('helpTitle').textContent = h.title;
+  $('helpDiagram').innerHTML = h.diagram ?? '';
+  $('helpDiagram').hidden = !h.diagram;
+  $('helpBody').innerHTML = h.body;
+  openSheet('helpSheet');
+}, true);
+
+$('fieldSeveralBtn').addEventListener('click', () => {
+  openFields();
+  setMultiMode(true);
+});
+
+// ---------------------------------------------------------------------------
+// First-run setup: machine → product → first field.
+
+type MachineKind = 'spinner' | 'boom' | 'sprayer';
+const KIND_DEFAULTS: Record<MachineKind, Omit<MachineRecord, 'id' | 'name' | 'widthFt'> & { width: number; label: string }> = {
+  spinner: { label: 'Spinner', width: 70, sections: 1, shutoff: 'center', cornerStyle: 'overrun', defaultHeadlandLaps: 2 },
+  boom: { label: 'Dry boom', width: 60, sections: 1, shutoff: 'center', cornerStyle: 'pivot', defaultHeadlandLaps: 2 },
+  sprayer: { label: 'Sprayer', width: 120, sections: 9, shutoff: 'center', cornerStyle: 'pivot', defaultHeadlandLaps: 1 },
+};
+let setupStep = 1;
+let setupKind: MachineKind = 'spinner';
+let setupAdjust: 'rate' | 'density' = 'rate';
+
+function showSetupStep(n: number) {
+  setupStep = n;
+  for (const pane of document.querySelectorAll<HTMLElement>('.setup-pane')) pane.hidden = pane.dataset.s !== String(n);
+  for (const li of document.querySelectorAll<HTMLElement>('#setupSteps li')) {
+    const s = Number(li.dataset.s);
+    li.classList.toggle('active', s === n);
+    li.classList.toggle('done', s < n);
+  }
+  $('setupError').hidden = true;
+  ($('setupBack') as HTMLButtonElement).hidden = n === 1;
+  $('setupNext').textContent = n === 3 ? 'Skip for now' : 'Next';
+  $('suAdjustRow').hidden = !isDryUnit(($('suUnit') as HTMLSelectElement).value);
+}
+
+function setSetupKind(kind: MachineKind) {
+  setupKind = kind;
+  setSeg('suType', kind);
+  const d = KIND_DEFAULTS[kind];
+  ($('suWidth') as HTMLInputElement).placeholder = `e.g. ${d.width}`;
+  ($('suSections') as HTMLInputElement).value = String(d.sections);
+}
+
+function openSetup() {
+  setSetupKind(setupKind);
+  setSeg('suAdjust', setupAdjust);
+  const r = settings.product.rate;
+  if (r && !($('suRate') as HTMLInputElement).value) ($('suRate') as HTMLInputElement).value = String(r);
+  showSetupStep(1);
+  openSheet('setupSheet');
+}
+
+function setupError(msg: string) {
+  $('setupError').textContent = msg;
+  $('setupError').hidden = false;
+}
+
+/** Saves the machine and product from steps 1–2. */
+function commitSetup(): boolean {
+  const width = num($('suWidth') as HTMLInputElement);
+  if (!width || width < 1 || width > 400) {
+    showSetupStep(1);
+    setupError('Enter the working width in feet.');
+    return false;
+  }
+  const d = KIND_DEFAULTS[setupKind];
+  const sections = Math.max(1, Math.min(48, Math.round(num($('suSections') as HTMLInputElement) ?? d.sections)));
+  const name = ($('suName') as HTMLInputElement).value.trim() || `${d.label} ${fmt(width, 0)} ft`;
+  const m: MachineRecord = {
+    id: uid(),
+    name,
+    widthFt: width,
+    sections,
+    shutoff: d.shutoff,
+    cornerStyle: d.cornerStyle,
+    defaultHeadlandLaps: d.defaultHeadlandLaps,
+  };
+  // Replace the made-up starter machines the first time through.
+  const untouched = machines.every((x) => DEFAULT_MACHINES.some((dm) => dm.id === x.id));
+  machines = untouched ? [m] : [...machines, m];
+  store.saveMachines(machines);
+  settings.activeMachineId = m.id;
+  plan.laps = m.defaultHeadlandLaps;
+  const unit = ($('suUnit') as HTMLSelectElement).value;
+  settings.product = {
+    ...settings.product,
+    rate: num($('suRate') as HTMLInputElement) ?? settings.product.rate,
+    unit,
+    adjustBy: isDryUnit(unit) ? setupAdjust : 'rate',
+  };
+  settings.setupDone = true;
+  saveSettings();
+  syncControls();
+  renderResults();
+  return true;
+}
+
+onSeg('suType', (v) => setSetupKind(v as MachineKind));
+onSeg('suAdjust', (v) => {
+  setupAdjust = v as 'rate' | 'density';
+  setSeg('suAdjust', setupAdjust);
+});
+$('suUnit').addEventListener('change', () => {
+  $('suAdjustRow').hidden = !isDryUnit(($('suUnit') as HTMLSelectElement).value);
+});
+$('setupBack').addEventListener('click', () => showSetupStep(Math.max(1, setupStep - 1)));
+$('setupNext').addEventListener('click', () => {
+  if (setupStep === 1) {
+    const w = num($('suWidth') as HTMLInputElement);
+    if (!w || w < 1 || w > 400) return setupError('Enter the working width in feet.');
+    showSetupStep(2);
+  } else if (setupStep === 2) {
+    const r = num($('suRate') as HTMLInputElement);
+    if (!r || r <= 0) return setupError('Enter the rate you usually put on.');
+    if (commitSetup()) showSetupStep(3);
+  } else {
+    ($('setupSheet') as HTMLDialogElement).close();
+  }
+});
+$('setupSkip').addEventListener('click', () => ($('setupSheet') as HTMLDialogElement).close());
+$('setupSheet').addEventListener('close', () => {
+  if (!settings.setupDone) {
+    settings.setupDone = true;
+    saveSettings();
+  }
+});
+$('suFile').addEventListener('change', async (e) => {
+  ($('setupSheet') as HTMLDialogElement).close();
+  await importPicked(e.target as HTMLInputElement);
+});
+$('suDraw').addEventListener('click', () => {
+  ($('setupSheet') as HTMLDialogElement).close();
+  startEdit('new');
+});
+$('suDemo').addEventListener('click', () => {
+  ($('setupSheet') as HTMLDialogElement).close();
+  const [added] = addFields([DEMO_FIELD], 'demo');
+  selectField(added.id);
+  toast('Demo field loaded. Try changing the rate or work plan.');
+});
+$('rerunSetupBtn').addEventListener('click', () => {
+  ($('settingsSheet') as HTMLDialogElement).close();
+  openSetup();
+});
+
+// ---------------------------------------------------------------------------
 // Boot
 
 applyTheme();
@@ -1629,3 +1856,12 @@ else {
   if (all.length) map.fitBounds(L.latLngBounds(all), { padding: [24, 24] });
 }
 startGps();
+// New install: walk through setup. Existing users (with fields) skip it.
+if (!settings.setupDone) {
+  if (fields.length) {
+    settings.setupDone = true;
+    saveSettings();
+  } else {
+    openSetup();
+  }
+}

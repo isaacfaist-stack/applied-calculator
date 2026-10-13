@@ -31,11 +31,12 @@
         <!-- Answer -->
         <div class="card hero" id="hero">
           <div class="hero-empty" id="heroEmpty">
-            <p class="hero-title">Pick a field to start</p>
-            <p class="muted">Import an Agvance boundary export (shapefile .zip), a KML/KMZ, or draw it on the map.</p>
-            <div class="row gap">
-              <button class="btn primary" type="button" data-action="open-fields">Choose field</button>
-            </div>
+            <p class="hero-title">Three steps to your rate</p>
+            <ol class="checklist">
+              <li id="ck1"><span class="ckmark"></span>Choose a field <button class="btn small-btn primary" type="button" data-action="open-fields">Choose</button></li>
+              <li id="ck2"><span class="ckmark"></span>Enter the product rate</li>
+              <li id="ck3"><span class="ckmark"></span>Check the work plan</li>
+            </ol>
           </div>
           <div class="hero-body" id="heroBody" hidden>
             <div class="stats3">
@@ -44,21 +45,42 @@
               <div><span class="k">Overlap</span><span class="v" id="overlapPct">–</span><span class="u"></span></div>
             </div>
             <div class="answer" id="answer">
-              <div class="answer-label" id="answerLabel">Set controller rate to</div>
+              <div class="answer-label"><span id="answerLabel">On the controller, set Rate to</span> <button type="button" class="info" data-help="answer" aria-label="What is this answer?">i</button></div>
               <div class="answer-rate"><span id="answerRate">–</span> <span class="answer-unit" id="answerUnit"></span></div>
               <div class="answer-change" id="answerChange">–</div>
             </div>
             <div class="answer-sub" id="answerSub"></div>
+            <div class="answer-warn" id="answerWarn" role="alert" hidden></div>
             <div class="computing" id="computing" hidden>Calculating…</div>
           </div>
         </div>
 
+        <!-- 1 Field -->
+        <details class="card fold step-card" id="fieldCard" open>
+          <summary><span class="step" id="step1">1</span><h2>Field</h2><span class="muted sum-hint" id="fieldSummary"></span></summary>
+          <div class="field-current" id="fieldCurrent">No field chosen yet.</div>
+          <div class="row gap wrap">
+            <button class="btn primary" type="button" data-action="open-fields">Choose field</button>
+            <button class="btn" type="button" id="fieldSeveralBtn">Several fields</button>
+          </div>
+          <div id="boundaryTools" hidden>
+            <h3>Boundary</h3>
+            <div class="row gap wrap">
+              <button class="btn" type="button" id="editBoundaryBtn">Edit boundary</button>
+              <button class="btn" type="button" id="addHoleBtn">Add exclusion</button>
+              <button class="btn" type="button" id="renameFieldBtn">Rename</button>
+              <button class="btn danger-text" type="button" id="clearHolesBtn">Clear exclusions</button>
+            </div>
+            <p class="muted small">Exclusions are areas inside the boundary that don't get product, like waterways, farmsteads and ponds.</p>
+          </div>
+        </details>
+
         <!-- Product -->
         <details class="card fold" id="productCard" open>
-          <summary><h2>Product</h2><span class="muted sum-hint" id="productSummary"></span></summary>
+          <summary><span class="step" id="step2">2</span><h2>Product</h2><span class="muted sum-hint" id="productSummary"></span></summary>
           <div class="grid2">
             <label class="field">
-              <span>Target rate</span>
+              <span>Target rate <button type="button" class="info" data-help="rate" aria-label="What is target rate?">i</button></span>
               <div class="input-unit">
                 <input id="rateInput" type="number" inputmode="decimal" min="0" step="any" />
                 <select id="unitSelect" aria-label="Product unit">
@@ -72,18 +94,18 @@
               </div>
             </label>
             <label class="field">
-              <span>Product given for this job <em>(optional)</em></span>
+              <span>Product given <em>(optional)</em> <button type="button" class="info" data-help="given" aria-label="What is product given?">i</button></span>
               <div class="input-unit">
                 <input id="loadedInput" type="number" inputmode="decimal" min="0" step="any" placeholder="e.g. 24000" />
                 <select id="loadedAsSelect" aria-label="Product given as">
                   <option value="product" id="loadedUnitOpt">lb</option>
-                  <option value="acres">ac worth</option>
+                  <option value="acres">acres</option>
                 </select>
               </div>
             </label>
           </div>
-          <div class="ctl col">
-            <span class="ctl-label">Adjust with</span>
+          <div class="ctl col" id="adjustRow">
+            <span class="ctl-label">Adjust with <button type="button" class="info" data-help="adjust" aria-label="What is adjusting with rate or density?">i</button></span>
             <div class="seg" id="adjustSeg" role="radiogroup">
               <button type="button" data-v="rate">Rate</button>
               <button type="button" data-v="density">Density</button>
@@ -91,25 +113,22 @@
           </div>
           <div id="densityBlock" hidden>
             <label class="field">
-              <span>Product density — what it really weighs</span>
+              <span>Product's true density <button type="button" class="info" data-help="density" aria-label="What is product density?">i</button></span>
               <div class="input-unit">
                 <input id="densityInput" type="number" inputmode="decimal" min="1" step="any" placeholder="e.g. 62" />
                 <span class="suffix">lb/ft³</span>
               </div>
             </label>
-            <p class="muted small">
-              From the plant's ticket or a density cup. The app tells you what density to program instead, so the rate on
-              the screen and in your as-applied records stays at the prescription.
-            </p>
+            <p class="muted small">From a density cup or the plant's ticket. The app tells you what density to program.</p>
           </div>
           <dl class="kv" id="productKv"></dl>
         </details>
 
         <!-- Plan -->
         <details class="card fold" id="planCard" open>
-          <summary><h2>Work plan</h2><span class="muted sum-hint" id="planSummary"></span></summary>
+          <summary><span class="step" id="step3">3</span><h2>Work plan</h2><span class="muted sum-hint" id="planSummary"></span></summary>
           <div class="ctl">
-            <span class="ctl-label">Headland laps</span>
+            <span class="ctl-label">Headland laps <button type="button" class="info" data-help="laps" aria-label="What is headland laps?">i</button></span>
             <div class="stepper">
               <button type="button" id="lapsMinus" aria-label="Fewer laps">−</button>
               <output id="lapsOut">2</output>
@@ -117,7 +136,7 @@
             </div>
           </div>
           <div class="ctl col">
-            <span class="ctl-label">Pass direction</span>
+            <span class="ctl-label">Pass direction <button type="button" class="info" data-help="heading" aria-label="What is pass direction?">i</button></span>
             <div class="seg" id="headingSeg" role="radiogroup">
               <button type="button" data-v="longest">Longest side</button>
               <button type="button" data-v="optimized">Least overlap</button>
@@ -129,7 +148,7 @@
             </div>
           </div>
           <div class="ctl col">
-            <span class="ctl-label">Shut off at headland</span>
+            <span class="ctl-label">Shut off at headland <button type="button" class="info" data-help="shutoff" aria-label="What is shut off at headland?">i</button></span>
             <div class="seg" id="shutoffSeg" role="radiogroup">
               <button type="button" data-v="noskip">No skips</button>
               <button type="button" data-v="center">Center</button>
@@ -137,7 +156,7 @@
             </div>
           </div>
           <div class="ctl col">
-            <span class="ctl-label">Headland corners</span>
+            <span class="ctl-label">Headland corners <button type="button" class="info" data-help="corners" aria-label="What is headland corners?">i</button></span>
             <div class="seg" id="cornerSeg" role="radiogroup">
               <button type="button" data-v="overrun">Run into corner</button>
               <button type="button" data-v="pivot">Pivot on line</button>
@@ -154,17 +173,6 @@
           <dl class="kv" id="planKv"></dl>
         </details>
 
-        <!-- Boundary -->
-        <details class="card fold" id="boundaryCard" hidden>
-          <summary><h2>Field boundary</h2><span class="muted sum-hint" id="boundarySummary"></span></summary>
-          <div class="row gap wrap">
-            <button class="btn" type="button" id="editBoundaryBtn">Edit boundary</button>
-            <button class="btn" type="button" id="addHoleBtn">Add exclusion</button>
-            <button class="btn" type="button" id="renameFieldBtn">Rename</button>
-            <button class="btn danger-text" type="button" id="clearHolesBtn">Clear exclusions</button>
-          </div>
-          <p class="muted small">Exclusions are areas inside the boundary that don't get product, like waterways, farmsteads and ponds.</p>
-        </details>
 
 
 
@@ -177,10 +185,10 @@
       <section class="mapwrap">
         <div id="map"></div>
         <div class="map-tools">
-          <button class="map-btn" type="button" id="imageryBtn" aria-label="Change satellite imagery">🛰</button>
-          <button class="map-btn" type="button" id="locateBtn" aria-label="Show my location">◎</button>
-          <button class="map-btn" type="button" id="layersBtn" aria-label="Toggle coverage layer">▦</button>
-          <button class="map-btn" type="button" id="fitBtn" aria-label="Zoom to field">⤢</button>
+          <button class="map-btn" type="button" id="imageryBtn"><span aria-hidden="true">🛰</span><small>Imagery</small></button>
+          <button class="map-btn" type="button" id="locateBtn"><span aria-hidden="true">◎</span><small>Me</small></button>
+          <button class="map-btn" type="button" id="layersBtn"><span aria-hidden="true">▦</span><small>Coverage</small></button>
+          <button class="map-btn" type="button" id="fitBtn"><span aria-hidden="true">⤢</span><small>Field</small></button>
         </div>
         <div class="map-legend" id="mapLegend" hidden>
           <span><i class="sw single"></i>Once</span>
@@ -258,14 +266,14 @@
           </div>
           <div class="grid2">
             <label class="field">
-              <span>Working width</span>
+              <span>Working width <button type="button" class="info" data-help="width" aria-label="What is working width?">i</button></span>
               <div class="input-unit">
                 <input id="widthInput" type="number" inputmode="decimal" min="1" step="any" />
                 <span class="suffix">ft</span>
               </div>
             </label>
             <label class="field">
-              <span>Sections</span>
+              <span>Sections <button type="button" class="info" data-help="sections" aria-label="What is sections?">i</button></span>
               <div class="input-unit">
                 <input id="sectionsInput" type="number" inputmode="numeric" min="1" max="48" step="1" />
                 <span class="suffix">#</span>
@@ -273,7 +281,7 @@
             </label>
           </div>
           <div class="ctl col">
-            <span class="ctl-label">Machine bias (shim) — what this machine really puts out vs. the monitor</span>
+            <span class="ctl-label">Machine bias <button type="button" class="info" data-help="bias" aria-label="What is machine bias?">i</button></span>
             <div class="seg" id="biasDirSeg" role="radiogroup">
               <button type="button" data-v="more">Puts out more</button>
               <button type="button" data-v="less">Puts out less</button>
@@ -288,7 +296,7 @@
             </p>
           </div>
           <div class="ctl col">
-            <span class="ctl-label">Average rate decrease — how far under the requested rate this machine averages</span>
+            <span class="ctl-label">Average rate decrease <button type="button" class="info" data-help="decrease" aria-label="What is average rate decrease?">i</button></span>
             <div class="input-unit">
               <input id="trackingInput" type="number" inputmode="decimal" min="-20" max="50" step="any" placeholder="0" />
               <span class="suffix">% under</span>
@@ -321,7 +329,7 @@
           </div>
         </section>
       <section class="tab-pane" id="calibratePane" hidden>
-        <h3>Check a finished job</h3>
+        <h3>Check a finished job <button type="button" class="info" data-help="calibrate" aria-label="What is checking a finished job?">i</button></h3>
           <p class="muted small">
             Enter what really happened to work out this machine's rate tracking and whether the density or a bias needs
             changing.
@@ -333,7 +341,7 @@
                 <input id="ckLoaded" type="number" inputmode="decimal" min="0" step="any" />
                 <select id="ckLoadedAs" aria-label="Loaded as">
                   <option value="product" id="ckLoadedUnitOpt">lb</option>
-                  <option value="acres">ac worth</option>
+                  <option value="acres">acres</option>
                 </select>
               </div>
             </label>
@@ -406,8 +414,20 @@
           <button type="button" data-v="esri">Esri</button>
         </div>
       </div>
+      <h3>Data</h3>
+      <div class="row gap wrap">
+        <button class="btn" type="button" id="exportBtn">Back up fields &amp; machines</button>
+        <label class="btn file-btn">
+          Restore backup
+          <input type="file" id="restoreInput" accept=".json" />
+        </label>
+        <button class="btn" type="button" id="rerunSetupBtn">Run setup again</button>
+      </div>
+      <details class="advanced">
+        <summary>Advanced: Google Maps key, Agvance server</summary>
+        <h4>Google Maps API key</h4>
       <label class="field">
-        <span>Google Maps API key</span>
+        <span>Key</span>
         <input id="googleKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…" />
       </label>
       <p class="muted small" id="googleKeyNote">
@@ -415,11 +435,11 @@
         key, and Esri tiles you've already viewed keep working offline.
       </p>
       <div class="row gap">
-        <button class="btn primary" type="button" id="saveGoogleBtn">Save imagery settings</button>
+        <button class="btn primary" type="button" id="saveGoogleBtn">Save key</button>
         <button class="btn" type="button" id="testGoogleBtn">Test Google imagery</button>
       </div>
       <div class="test-result" id="googleTestResult" role="status" aria-live="polite" hidden></div>
-      <h3>Agvance boundary server</h3>
+      <h4>Agvance boundary server</h4>
       <p class="muted small">
         Optional. Connects to a small server that holds your company's Agvance API access and serves field
         boundaries. Leave blank to import exported files instead.
@@ -435,14 +455,102 @@
       <div class="row gap">
         <button class="btn primary" type="button" id="saveServerBtn">Save</button>
       </div>
-      <h3>Data</h3>
-      <div class="row gap wrap">
-        <button class="btn" type="button" id="exportBtn">Back up fields &amp; machines</button>
-        <label class="btn file-btn">
-          Restore backup
-          <input type="file" id="restoreInput" accept=".json" />
-        </label>
+      </details>
+    </dialog>
+
+    <!-- First-run setup -->
+    <dialog class="sheet setup" id="setupSheet">
+      <div class="sheet-head">
+        <h2>Set up Applied Acres</h2>
+        <button class="icon-btn" type="button" id="setupSkip" aria-label="Skip setup">✕</button>
       </div>
+      <ol class="setup-steps" id="setupSteps">
+        <li data-s="1">Machine</li>
+        <li data-s="2">Product</li>
+        <li data-s="3">Field</li>
+      </ol>
+      <section class="setup-pane" data-s="1">
+        <p class="muted">What are you applying with? You can add more machines later with 🚜.</p>
+        <div class="seg" id="suType" role="radiogroup">
+          <button type="button" data-v="spinner">Dry spinner</button>
+          <button type="button" data-v="boom">Dry boom</button>
+          <button type="button" data-v="sprayer">Sprayer</button>
+        </div>
+        <label class="field">
+          <span>Name</span>
+          <input id="suName" type="text" placeholder="e.g. Floater 1" />
+        </label>
+        <div class="grid2">
+          <label class="field">
+            <span>Working width <button type="button" class="info" data-help="width" aria-label="What is working width?">i</button></span>
+            <div class="input-unit">
+              <input id="suWidth" type="number" inputmode="decimal" min="1" step="any" placeholder="e.g. 70" />
+              <span class="suffix">ft</span>
+            </div>
+          </label>
+          <label class="field">
+            <span>Sections <button type="button" class="info" data-help="sections" aria-label="What is sections?">i</button></span>
+            <div class="input-unit">
+              <input id="suSections" type="number" inputmode="numeric" min="1" max="48" step="1" />
+              <span class="suffix">#</span>
+            </div>
+          </label>
+        </div>
+      </section>
+      <section class="setup-pane" data-s="2" hidden>
+        <p class="muted">The rate you usually put on. You'll change it per job on the main screen.</p>
+        <label class="field">
+          <span>Target rate</span>
+          <div class="input-unit">
+            <input id="suRate" type="number" inputmode="decimal" min="0" step="any" placeholder="e.g. 250" />
+            <select id="suUnit" aria-label="Product unit">
+              <option value="lb">lb/ac</option>
+              <option value="gal">gal/ac</option>
+              <option value="ton">ton/ac</option>
+            </select>
+          </div>
+        </label>
+        <div class="ctl col" id="suAdjustRow">
+          <span class="ctl-label">How do you adjust to stretch or use up product? <button type="button" class="info" data-help="adjust" aria-label="What is adjusting with rate or density?">i</button></span>
+          <div class="seg" id="suAdjust" role="radiogroup">
+            <button type="button" data-v="rate">Change the rate</button>
+            <button type="button" data-v="density">Change the density</button>
+          </div>
+        </div>
+      </section>
+      <section class="setup-pane" data-s="3" hidden>
+        <p class="muted">Bring in your first field. You can add more any time from the field name at the top.</p>
+        <div class="setup-choices">
+          <label class="choice file-btn">
+            <strong>Import a boundary file</strong>
+            <span class="muted small">Agvance shapefile (.zip), KML/KMZ or GeoJSON</span>
+            <input type="file" id="suFile" multiple accept=".zip,.kml,.kmz,.geojson,.json,.shp,.dbf,.prj,.shx,.cpg" />
+          </label>
+          <button class="choice" type="button" id="suDraw">
+            <strong>Draw it on the map</strong>
+            <span class="muted small">Tap the corners on satellite imagery</span>
+          </button>
+          <button class="choice" type="button" id="suDemo">
+            <strong>Try a demo field</strong>
+            <span class="muted small">A made-up 150 acre field to see how it works</span>
+          </button>
+        </div>
+      </section>
+      <p class="setup-error" id="setupError" role="alert" hidden></p>
+      <div class="setup-nav">
+        <button class="btn" type="button" id="setupBack">Back</button>
+        <button class="btn primary" type="button" id="setupNext">Next</button>
+      </div>
+    </dialog>
+
+    <!-- Help -->
+    <dialog class="sheet help" id="helpSheet">
+      <div class="sheet-head">
+        <h2 id="helpTitle">Help</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
+      </div>
+      <div class="help-diagram" id="helpDiagram"></div>
+      <div class="help-body" id="helpBody"></div>
     </dialog>
 
     <script type="module" src="/src/main.ts"></script>

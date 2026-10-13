@@ -68,6 +68,21 @@ simulated plan across the boundary and adds up the overlap:
 Holes in a boundary (waterways, farmsteads, ponds) are excluded from surface
 acres, and passes shut off across them.
 
+## Made for crews, not just one person
+
+- **First-run setup** walks a new user through their machine, usual product
+  rate, and first field (import, draw, or a demo field). It can be rerun from
+  Settings.
+- **ⓘ on every setting** opens a plain-language explanation, with diagrams for
+  headland shutoff and corners.
+- **Sanity checks:** any adjustment over 10% shows a warning listing the inputs
+  most likely to be wrong (product given vs. field size, density, machine
+  corrections, rate and unit). Density mode is hidden for liquid units.
+- **Numbered steps** (1 Field, 2 Product, 3 Work plan) tick off as they're
+  filled in, and the answer says exactly what to set on the controller.
+- **Labeled map buttons**, and the Google key / Agvance server tucked under
+  Settings → Advanced.
+
 ## Using it on the iPad
 
 1. Open the app's web address in **Safari**, tap **Share → Add to Home

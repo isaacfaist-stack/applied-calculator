@@ -50,7 +50,7 @@ data into this simple contract:
 ```
 GET {server}/fields?q=<search>
 Authorization: Bearer <token>
-→ 200 [{ "id": "123", "name": "North 160", "grower": "Faist Farms", "farm": "Home", "acres": 152.3 }, ...]
+→ 200 [{ "id": "123", "name": "North 160", "grower": "Demo Farms", "farm": "Home", "acres": 152.3 }, ...]
 
 GET {server}/fields/{id}/boundary
 Authorization: Bearer <token>
