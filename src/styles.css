@@ -1485,3 +1485,13 @@ dialog.setup {
 .draw-bar #holeKindSeg {
   flex: 1 1 260px;
 }
+
+.boundary-field + .boundary-field {
+  margin-top: 18px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.boundary-field h4 {
+  margin: 18px 0 8px;
+}

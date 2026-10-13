@@ -956,7 +956,7 @@ function selectFields(ids: string[], opts: { keepView?: boolean } = {}) {
   settings.lastFieldIds = entries.map((e) => e.field.id);
   saveSettings();
   // Boundary tools edit one field at a time.
-  $('boundaryTools').hidden = entries.length !== 1;
+  $('boundaryTools').hidden = !entries.length;
   renderBoundaryTools();
   if (!activeField) {
     $('fieldName').textContent = 'Choose a field';
@@ -1244,15 +1244,16 @@ const EDIT_HINTS: Record<EditMode, string> = {
   hole: 'Tap the corners of the area to leave out (waterway, farmstead, pond)',
 };
 
-function startEdit(mode: EditMode, target?: EditTarget) {
+function startEdit(mode: EditMode, target?: EditTarget, fieldId?: string) {
   if (editSession) stopEdit();
   (document.getElementById('fieldsSheet') as HTMLDialogElement).close();
+  const field = fieldId ? fields.find((x) => x.id === fieldId) ?? null : activeField;
   let initial: L.LatLng[] = [];
   let note = '';
   if (mode === 'edit') {
-    if (!activeField) return;
-    const parts = polygonsOf(activeField.geometry);
-    target = target ?? { part: largestPart(activeField.geometry) };
+    if (!field) return;
+    const parts = polygonsOf(field.geometry);
+    target = target ?? { part: largestPart(field.geometry) };
     const ring = target.hole === undefined ? parts[target.part]?.[0] : parts[target.part]?.[target.hole + 1];
     if (!ring) return;
     const thinned = thinForEditing(openRing(ring));
@@ -1260,7 +1261,7 @@ function startEdit(mode: EditMode, target?: EditTarget) {
     if (thinned.tolerance) {
       note = `Simplified from ${ring.length - 1} points to ${thinned.pts.length} for editing (shape kept within ${fmt(thinned.tolerance, thinned.tolerance < 1 ? 2 : 0)} m).`;
     }
-  } else if (mode === 'hole' && !activeField) {
+  } else if (mode === 'hole' && !field) {
     return;
   }
   const hint = (pts: L.LatLng[]) =>
@@ -1272,7 +1273,7 @@ function startEdit(mode: EditMode, target?: EditTarget) {
       $('drawHint').textContent = hint(pts);
     },
   });
-  editSession = { mode, fieldId: mode === 'new' ? undefined : activeField?.id, editor, target };
+  editSession = { mode, fieldId: mode === 'new' ? undefined : field?.id, editor, target };
   newHoleKind = 'drive';
   setSeg('holeKindSeg', newHoleKind);
   $('holeKindSeg').hidden = mode !== 'hole';
@@ -1336,106 +1337,132 @@ function saveEdit() {
   }
   saveFieldChange(f, geometryFrom(parts), kinds);
   stopEdit();
-  selectField(f.id, { keepView: true });
+  reselect(f.id);
   toast(mode === 'edit' ? 'Boundary saved' : 'Exclusion added');
 }
 
 $('drawBtn').addEventListener('click', () => startEdit('new'));
-$('addHoleBtn').addEventListener('click', () => startEdit('hole'));
 onSeg('holeKindSeg', (v) => {
   newHoleKind = v as ExclusionKind;
   setSeg('holeKindSeg', newHoleKind);
 });
 
-/** Edit buttons for each part of the field, and the exclusion list. */
+/** Re-plan after a field changed, keeping several selected fields together. */
+function reselect(changedId: string) {
+  const ids = entries.map((e) => e.field.id);
+  selectFields(ids.includes(changedId) ? ids : [changedId], { keepView: true });
+}
+
+/** Boundary editing, exclusions, rename and restore for each selected field. */
 function renderBoundaryTools() {
-  const f = entries.length === 1 ? entries[0].field : null;
-  if (!f) return;
-  const parts = polygonsOf(f.geometry);
-  const kinds = holeKindsOf(f);
-  $('partButtons').innerHTML =
-    parts.length === 1
-      ? '<button class="btn" type="button" data-edit-part="0">Edit boundary</button>'
-      : parts
-          .map(
-            (p, i) =>
-              `<button class="btn" type="button" data-edit-part="${i}">Edit part ${i + 1} · ${fmt(ringAcres(openRing(p[0])), 1)} ac</button>`,
-          )
-          .join('');
-  $('restoreBoundaryBtn').hidden = !f.originalGeometry;
-  const items: string[] = [];
-  parts.forEach((p, i) =>
-    p.slice(1).forEach((ring, j) => {
-      const kind = kinds[i][j];
-      items.push(`<li>
-        <div class="ex-head"><strong>Exclusion ${items.length + 1}</strong><span class="muted small">${fmt(ringAcres(openRing(ring)), 2)} ac</span>
-          <button class="btn ex-btn" type="button" data-ex-edit="${i}:${j}">Edit</button>
-          <button class="btn ex-btn danger-text" type="button" data-ex-del="${i}:${j}" aria-label="Delete exclusion ${items.length + 1}">✕</button>
+  const multi = entries.length > 1;
+  $('boundaryTools').innerHTML = entries
+    .map(({ field: f }) => {
+      const parts = polygonsOf(f.geometry);
+      const kinds = holeKindsOf(f);
+      const id = esc(f.id);
+      const partBtns =
+        parts.length === 1
+          ? `<button class="btn" type="button" data-fid="${id}" data-edit-part="0">✎ Edit boundary</button>`
+          : parts
+              .map(
+                (p, i) =>
+                  `<button class="btn" type="button" data-fid="${id}" data-edit-part="${i}">✎ Edit part ${i + 1} · ${fmt(ringAcres(openRing(p[0])), 1)} ac</button>`,
+              )
+              .join('');
+      const items: string[] = [];
+      parts.forEach((p, i) =>
+        p.slice(1).forEach((ring, j) => {
+          const kind = kinds[i][j];
+          const n = items.length + 1;
+          items.push(`<li>
+            <div class="ex-head"><strong>Exclusion ${n}</strong><span class="muted small">${fmt(ringAcres(openRing(ring)), 2)} ac</span>
+              <button class="btn ex-btn" type="button" data-fid="${id}" data-ex-edit="${i}:${j}">Edit</button>
+              <button class="btn ex-btn danger-text" type="button" data-fid="${id}" data-ex-del="${i}:${j}" aria-label="Delete exclusion ${n}">✕</button>
+            </div>
+            <div class="seg" role="radiogroup">
+              <button type="button" role="radio" aria-checked="${kind === 'drive'}" data-fid="${id}" data-ex-kind="${i}:${j}:drive">Drive through</button>
+              <button type="button" role="radio" aria-checked="${kind === 'avoid'}" data-fid="${id}" data-ex-kind="${i}:${j}:avoid">Go around</button>
+            </div>
+          </li>`);
+        }),
+      );
+      return `<section class="boundary-field">
+        <h3>${multi ? esc(f.name) : 'Boundary'}</h3>
+        <div class="row gap wrap">${partBtns}
+          <button class="btn" type="button" data-fid="${id}" data-rename>Rename</button>
+          ${f.originalGeometry ? `<button class="btn" type="button" data-fid="${id}" data-restore>Restore imported boundary</button>` : ''}
         </div>
-        <div class="seg" role="radiogroup">
-          <button type="button" role="radio" aria-checked="${kind === 'drive'}" data-ex-kind="${i}:${j}:drive">Drive through</button>
-          <button type="button" role="radio" aria-checked="${kind === 'avoid'}" data-ex-kind="${i}:${j}:avoid">Go around</button>
-        </div>
-      </li>`);
-    }),
-  );
-  $('exclusionList').innerHTML = items.length ? items.join('') : '<li class="muted small">None. Add waterways, trees, ponds or buildings that don\'t get product.</li>';
+        <h4>Exclusions <button type="button" class="info" data-help="exclusions" aria-label="What are exclusions?">i</button></h4>
+        <ul class="exclusion-list">${items.length ? items.join('') : '<li class="muted small">None. Add waterways, trees, ponds or buildings that don\'t get product.</li>'}</ul>
+        <button class="btn" type="button" data-fid="${id}" data-add-hole>+ Add exclusion</button>
+      </section>`;
+    })
+    .join('');
+  $('editMapBtn').hidden = !entries.length;
 }
 
 $('boundaryTools').addEventListener('click', (e) => {
   const t = e.target as HTMLElement;
-  const f = activeField;
+  const el = t.closest<HTMLElement>('[data-fid]');
+  if (!el) return;
+  const f = fields.find((x) => x.id === el.dataset.fid);
   if (!f) return;
-  const editPart = t.closest<HTMLElement>('[data-edit-part]');
-  const exEdit = t.closest<HTMLElement>('[data-ex-edit]');
-  const exDel = t.closest<HTMLElement>('[data-ex-del]');
-  const exKind = t.closest<HTMLElement>('[data-ex-kind]');
-  if (editPart) {
-    startEdit('edit', { part: Number(editPart.dataset.editPart) });
-  } else if (exEdit) {
-    const [i, j] = exEdit.dataset.exEdit!.split(':').map(Number);
-    startEdit('edit', { part: i, hole: j });
-  } else if (exDel) {
-    const [i, j] = exDel.dataset.exDel!.split(':').map(Number);
+  const d = el.dataset;
+  if (d.editPart !== undefined) {
+    startEdit('edit', { part: Number(d.editPart) }, f.id);
+  } else if (d.exEdit) {
+    const [i, j] = d.exEdit.split(':').map(Number);
+    startEdit('edit', { part: i, hole: j }, f.id);
+  } else if (d.addHole !== undefined) {
+    startEdit('hole', undefined, f.id);
+  } else if (d.exDel) {
+    const [i, j] = d.exDel.split(':').map(Number);
     if (!confirm('Delete this exclusion?')) return;
     const parts = polygonsOf(f.geometry).map((p) => p.map((r) => r.slice()));
     const kinds = holeKindsOf(f);
     parts[i].splice(j + 1, 1);
     kinds[i].splice(j, 1);
     saveFieldChange(f, geometryFrom(parts), kinds);
-    selectField(f.id, { keepView: true });
-  } else if (exKind) {
-    const [i, j, kind] = exKind.dataset.exKind!.split(':');
+    reselect(f.id);
+  } else if (d.exKind) {
+    const [i, j, kind] = d.exKind.split(':');
     const kinds = holeKindsOf(f);
     kinds[Number(i)][Number(j)] = kind as ExclusionKind;
     saveFieldChange(f, f.geometry, kinds);
-    selectField(f.id, { keepView: true });
+    reselect(f.id);
     toast(kind === 'avoid' ? 'Laps now go around this exclusion' : 'Passes now drive through this exclusion');
+  } else if (d.rename !== undefined) {
+    const name = prompt('Field name', f.name);
+    if (!name?.trim()) return;
+    f.name = name.trim();
+    f.updatedAt = Date.now();
+    store.saveFields(fields);
+    reselect(f.id);
+  } else if (d.restore !== undefined) {
+    if (!f.originalGeometry) return;
+    if (!confirm(`Put ${f.name} back the way it was imported? Your boundary edits and exclusions are removed.`)) return;
+    f.geometry = f.originalGeometry;
+    f.holeKinds = f.originalHoleKinds;
+    f.originalGeometry = undefined;
+    f.originalHoleKinds = undefined;
+    f.updatedAt = Date.now();
+    store.saveFields(fields);
+    reselect(f.id);
+    toast('Imported boundary restored');
   }
 });
 
-$('restoreBoundaryBtn').addEventListener('click', () => {
-  const f = activeField;
-  if (!f?.originalGeometry) return;
-  if (!confirm(`Put ${f.name} back the way it was imported? Your boundary edits and exclusions are removed.`)) return;
-  f.geometry = f.originalGeometry;
-  f.holeKinds = f.originalHoleKinds;
-  f.originalGeometry = undefined;
-  f.originalHoleKinds = undefined;
-  f.updatedAt = Date.now();
-  store.saveFields(fields);
-  selectField(f.id, { keepView: true });
-  toast('Imported boundary restored');
-});
-$('renameFieldBtn').addEventListener('click', () => {
-  if (!activeField) return;
-  const name = prompt('Field name', activeField.name);
-  if (!name?.trim()) return;
-  activeField.name = name.trim();
-  activeField.updatedAt = Date.now();
-  store.saveFields(fields);
-  $('fieldName').textContent = activeField.name;
-  drawBoundary();
+// ✎ on the map: edit right away with one field; with several, show the list.
+$('editMapBtn').addEventListener('click', () => {
+  if (entries.length === 1) {
+    startEdit('edit', undefined, entries[0].field.id);
+    return;
+  }
+  const card = $('fieldCard') as HTMLDetailsElement;
+  card.open = true;
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  toast('Pick which field to edit in 1 Field');
 });
 $('drawUndo').addEventListener('click', () => editSession?.editor.undo());
 $('drawCancel').addEventListener('click', stopEdit);

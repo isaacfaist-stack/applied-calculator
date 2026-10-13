@@ -63,17 +63,7 @@
             <button class="btn primary" type="button" data-action="open-fields">Choose field</button>
             <button class="btn" type="button" id="fieldSeveralBtn">Several fields</button>
           </div>
-          <div id="boundaryTools" hidden>
-            <h3>Boundary</h3>
-            <div class="row gap wrap" id="partButtons"></div>
-            <div class="row gap wrap boundary-more">
-              <button class="btn" type="button" id="renameFieldBtn">Rename</button>
-              <button class="btn" type="button" id="restoreBoundaryBtn" hidden>Restore imported boundary</button>
-            </div>
-            <h3>Exclusions <button type="button" class="info" data-help="exclusions" aria-label="What are exclusions?">i</button></h3>
-            <ul class="exclusion-list" id="exclusionList"></ul>
-            <button class="btn" type="button" id="addHoleBtn">Add exclusion</button>
-          </div>
+          <div id="boundaryTools" hidden></div>
         </details>
 
         <!-- Product -->
@@ -190,6 +180,7 @@
           <button class="map-btn" type="button" id="locateBtn"><span aria-hidden="true">◎</span><small>Me</small></button>
           <button class="map-btn" type="button" id="layersBtn"><span aria-hidden="true">▦</span><small>Coverage</small></button>
           <button class="map-btn" type="button" id="fitBtn"><span aria-hidden="true">⤢</span><small>Field</small></button>
+          <button class="map-btn" type="button" id="editMapBtn" hidden><span aria-hidden="true">✎</span><small>Boundary</small></button>
         </div>
         <div class="map-legend" id="mapLegend" hidden>
           <span><i class="sw single"></i>Once</span>
