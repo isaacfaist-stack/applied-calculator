@@ -98,6 +98,50 @@ describe('plan', () => {
   });
 });
 
+describe('headland laps follow curves smoothly', () => {
+  const headlandOnly = (field: Poly[], laps: number, W: number) => {
+    const r = plan(field, { widthM: W, sections: 1 }, { headlandLaps: laps, cornerStyle: 'pivot', headingDeg: 0, shutoff: 'center' });
+    const cov = computeCoverage(field, r.swaths.filter((s) => s.kind === 'headland'), 20);
+    const bandM2 = r.surfaceM2 - r.interiorM2;
+    // Everything inside the headland laps is a "skip" here (no passes drawn).
+    return { bandM2, skipInBand: cov.skipM2 - r.interiorM2, overlap: cov.overlapAreaM2 };
+  };
+
+  it('a round field: no speckled skips or doubles around the curve', () => {
+    const ring = Array.from({ length: 180 }, (_, i) => {
+      const t = (i / 180) * 2 * Math.PI;
+      return { x: 400 * Math.cos(t), y: 400 * Math.sin(t) };
+    });
+    const { bandM2, skipInBand, overlap } = headlandOnly([{ outer: ring, holes: [] }], 2, 18);
+    expect(Math.abs(skipInBand) / bandM2).toBeLessThan(0.005);
+    expect(overlap / bandM2).toBeLessThan(0.005);
+  });
+
+  it('a GPS-traced boundary with jitter behaves the same', () => {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5) * 0.8;
+    const ring = [];
+    for (let x = 0; x < 600; x += 3) ring.push({ x, y: rnd() });
+    for (let y = 0; y < 400; y += 3) ring.push({ x: 600 + rnd(), y });
+    for (let x = 600; x > 0; x -= 3) ring.push({ x, y: 400 + rnd() });
+    for (let y = 400; y > 0; y -= 3) ring.push({ x: rnd(), y });
+    const { bandM2, skipInBand, overlap } = headlandOnly([{ outer: ring, holes: [] }], 2, 18);
+    // Only the 4 real corners show up (2 laps x 4 corners x ~9 m x 9 m:
+    // doubled inside, bare outside when pivoting), nothing along the edges.
+    // Before smoothing, jitter alone produced ~4,400 m² of each.
+    expect(overlap).toBeLessThan(8 * 81 * 1.5);
+    expect(Math.abs(skipInBand)).toBeLessThan(8 * 81 * 1.5);
+    expect(overlap / bandM2).toBeLessThan(0.02);
+  });
+
+  it('a square corner still overlaps where the two runs meet', () => {
+    const { overlap } = headlandOnly(rect(360, 540), 2, 18);
+    // 4 corners x 2 laps x (9 m x 9 m) inner square.
+    expect(overlap).toBeGreaterThan(8 * 81 * 0.8);
+    expect(overlap).toBeLessThan(8 * 81 * 1.2);
+  });
+});
+
 describe('rate', () => {
   it('scales the rate by surface / applied', () => {
     const a = adviseRate({ surfaceAc: 100, appliedAc: 105, targetRate: 200, loaded: 20000 })!;

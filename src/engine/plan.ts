@@ -27,6 +27,13 @@ import {
 } from './geometry';
 
 /**
+ * A headland turn at least this sharp is a corner: the machine finishes one
+ * straight run and starts the next, so the two runs overlap. Gentler bends
+ * are driven as one continuous curve with no overlap or skip.
+ */
+export const SHARP_TURN_RAD = (45 * Math.PI) / 180;
+
+/**
  * Distance to keep driving past a headland corner at b (coming from a, going
  * on to c) so the outside of the swath reaches the boundary corner. Only
  * applies where the lap turns toward the field interior (a field corner),
@@ -41,7 +48,7 @@ function cornerOverrun(a: Pt, b: Pt, c: Pt, W: number, ringIsCcw: boolean): numb
   // A CCW ring turns left (+) at convex corners.
   const convex = ringIsCcw ? turn > 0 : turn < 0;
   const angle = Math.abs(turn);
-  if (!convex || angle < (15 * Math.PI) / 180) return 0;
+  if (!convex || angle < SHARP_TURN_RAD) return 0;
   return Math.min(W, (W / 2) * Math.tan(angle / 2));
 }
 
@@ -88,6 +95,8 @@ export interface Swath {
   b: Pt;
   width: number;
   kind: 'headland' | 'pass';
+  /** Headland swaths of one lap share a group, listed in driving order. */
+  group?: number;
 }
 
 export interface PlanResult {
@@ -141,6 +150,7 @@ export function prepareField(
         const ring = simplifyRing(cleanRing(raw), 0.3);
         if (ring.length < 3) continue;
         headlandPaths.push(ring);
+        const group = headlandPaths.length;
         // Every lap leaves an outside-corner wedge when pivoting, since the
         // lap outside it only reaches the edge of this lap's swath.
         const overrun = cornerStyle === 'overrun';
@@ -156,7 +166,7 @@ export function prepareField(
             if (extra > 0) b = { x: b.x + ((b.x - a.x) / len) * extra, y: b.y + ((b.y - a.y) / len) * extra };
           }
           const onLen = Math.hypot(b.x - a.x, b.y - a.y);
-          headlandSwaths.push({ a, b, width: W, kind: 'headland' });
+          headlandSwaths.push({ a, b, width: W, kind: 'headland', group });
           headlandAppliedM2 += onLen * W;
         }
       }

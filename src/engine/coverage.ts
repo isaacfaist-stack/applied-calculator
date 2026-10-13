@@ -3,7 +3,7 @@
 // map heat layer.
 
 import { type Poly, type Pt, allRings, lineIntervals } from './geometry';
-import type { Swath } from './plan';
+import { type Swath, SHARP_TURN_RAD } from './plan';
 
 export interface CoverageResult {
   /** Grid origin (lower-left, local meters) and cell size. */
@@ -64,18 +64,62 @@ export function computeCoverage(field: Poly[], swaths: Swath[], margin: number):
   const inc = (i: number) => {
     if (counts[i] < 65535) counts[i]++;
   };
-  for (const s of swaths) {
-    const quad = swathQuad(s);
-    let qMinY = Infinity, qMaxY = -Infinity;
-    for (const q of quad) {
-      if (q.y < qMinY) qMinY = q.y;
-      if (q.y > qMaxY) qMaxY = q.y;
+  /** Calls fn for every cell whose center is inside the convex polygon. */
+  const fillPoly = (poly: Pt[], fn: (i: number) => void) => {
+    let pMinY = Infinity, pMaxY = -Infinity;
+    for (const q of poly) {
+      if (q.y < pMinY) pMinY = q.y;
+      if (q.y > pMaxY) pMaxY = q.y;
     }
-    const r0 = Math.max(0, Math.ceil((qMinY - minY) / cell - 0.5));
-    const r1 = Math.min(rows - 1, Math.floor((qMaxY - minY) / cell - 0.5));
+    const r0 = Math.max(0, Math.ceil((pMinY - minY) / cell - 0.5));
+    const r1 = Math.min(rows - 1, Math.floor((pMaxY - minY) / cell - 0.5));
     for (let r = r0; r <= r1; r++) {
       const y = minY + (r + 0.5) * cell;
-      for (const [x0, x1] of lineIntervals([quad], y)) fillRow(r, x0, x1, inc);
+      for (const [x0, x1] of lineIntervals([poly], y)) fillRow(r, x0, x1, fn);
+    }
+  };
+
+  // Interior passes: each strip adds one application.
+  const laps = new Map<number, Swath[]>();
+  for (const s of swaths) {
+    if (s.group !== undefined) {
+      const list = laps.get(s.group);
+      if (list) list.push(s);
+      else laps.set(s.group, [s]);
+    } else {
+      fillPoly(swathQuad(s), inc);
+    }
+  }
+
+  // Headland laps: one continuous band. Gentle bends are joined smoothly
+  // (no skip outside the bend, no double inside it). At sharp corners the
+  // two straight runs overlap, and pivoting leaves the outside corner bare.
+  const lapMask = new Uint8Array(cols * rows);
+  for (const lap of laps.values()) {
+    const quads = lap.map(swathQuad);
+    for (const q of quads) fillPoly(q, (i) => (lapMask[i] = 1));
+    for (let k = 0; k < lap.length; k++) {
+      const s1 = lap[k];
+      const s2 = lap[(k + 1) % lap.length];
+      if (lap.length < 2) break;
+      if (turnAngle(s1, s2) < SHARP_TURN_RAD) {
+        // Fill the wedges between the two strips on both sides of the bend.
+        const v = s2.a;
+        const n1 = halfNormal(s1);
+        const n2 = halfNormal(s2);
+        fillPoly([v, { x: v.x + n1.x, y: v.y + n1.y }, { x: v.x + n2.x, y: v.y + n2.y }], (i) => (lapMask[i] = 1));
+        fillPoly([v, { x: v.x - n1.x, y: v.y - n1.y }, { x: v.x - n2.x, y: v.y - n2.y }], (i) => (lapMask[i] = 1));
+      } else {
+        // Corner: ground under both runs gets product twice.
+        const both = clipConvex(quads[k], quads[(k + 1) % quads.length]);
+        if (both.length >= 3) fillPoly(both, inc);
+      }
+    }
+    for (let i = 0; i < lapMask.length; i++) {
+      if (lapMask[i]) {
+        inc(i);
+        lapMask[i] = 0;
+      }
     }
   }
 
@@ -96,6 +140,54 @@ export function computeCoverage(field: Poly[], swaths: Swath[], margin: number):
   }
 
   return { minX, minY, cell, cols, rows, counts, mask, singleM2, overlapAreaM2, overlapExtraM2, skipM2, offFieldM2 };
+}
+
+/** Absolute change of direction between consecutive strips, radians. */
+function turnAngle(s1: Swath, s2: Swath): number {
+  let t = Math.atan2(s2.b.y - s2.a.y, s2.b.x - s2.a.x) - Math.atan2(s1.b.y - s1.a.y, s1.b.x - s1.a.x);
+  while (t > Math.PI) t -= 2 * Math.PI;
+  while (t < -Math.PI) t += 2 * Math.PI;
+  return Math.abs(t);
+}
+
+/** Left-pointing normal of a strip, half its width long. */
+function halfNormal(s: Swath): Pt {
+  const dx = s.b.x - s.a.x;
+  const dy = s.b.y - s.a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  return { x: (-dy / len) * (s.width / 2), y: (dx / len) * (s.width / 2) };
+}
+
+/** Sutherland–Hodgman: the part of convex polygon `subject` inside convex `clip`. */
+export function clipConvex(subject: Pt[], clip: Pt[]): Pt[] {
+  // Orient the clip polygon counter-clockwise so "inside" is to the left.
+  let area = 0;
+  for (let i = 0; i < clip.length; i++) {
+    const a = clip[i];
+    const b = clip[(i + 1) % clip.length];
+    area += a.x * b.y - b.x * a.y;
+  }
+  const c = area < 0 ? [...clip].reverse() : clip;
+  let out = subject;
+  for (let i = 0; i < c.length && out.length; i++) {
+    const a = c[i];
+    const b = c[(i + 1) % c.length];
+    const side = (p: Pt) => (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    const input = out;
+    out = [];
+    for (let j = 0; j < input.length; j++) {
+      const p = input[j];
+      const q = input[(j + 1) % input.length];
+      const sp = side(p);
+      const sq = side(q);
+      if (sp >= 0) out.push(p);
+      if ((sp >= 0) !== (sq >= 0)) {
+        const t = sp / (sp - sq);
+        out.push({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
+      }
+    }
+  }
+  return out;
 }
 
 export function swathQuad(s: Swath): Pt[] {

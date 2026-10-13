@@ -1152,40 +1152,35 @@ details.card.fold:not([open]) {
 /* ⓘ help buttons ----------------------------------------------------------- */
 
 .info {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  margin-left: 4px;
+  width: 17px;
+  height: 17px;
+  margin-left: 3px;
   padding: 0;
   border-radius: 50%;
-  border: 1.5px solid var(--muted);
+  border: 1.25px solid currentColor;
   background: transparent;
   color: var(--muted);
-  font: italic 700 0.8rem Georgia, 'Times New Roman', serif;
-  vertical-align: middle;
+  font: italic 700 0.68rem/1 Georgia, 'Times New Roman', serif;
+  vertical-align: 1px;
   cursor: pointer;
   flex: none;
+  opacity: 0.8;
 }
 
-.info:active {
-  background: var(--surface-2);
-}
-
-/* Bigger invisible tap target around the small circle. */
-.info {
-  position: relative;
-}
+/* Small to look at, still big enough to hit with a finger. */
 .info::before {
   content: '';
   position: absolute;
-  inset: -9px;
+  inset: -13px;
 }
 
-.answer-label .info {
-  width: 22px;
-  height: 22px;
+.info:active {
+  opacity: 1;
+  color: var(--accent);
 }
 
 /* Numbered steps --------------------------------------------------------- */
