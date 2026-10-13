@@ -6,7 +6,7 @@ import { registerSW } from 'virtual:pwa-register';
 import { M_PER_FT, SQ_M_PER_ACRE, ringArea } from './engine/geometry';
 import { makeProjection } from './engine/projection';
 import type { CornerStyle, ShutoffMode } from './engine/plan';
-import { actualRateAt, adviseMidField, adviseRate, checkJob, densityFor } from './engine/rate';
+import { adviseRate, checkJob, densityFor } from './engine/rate';
 import { type LocalField, distanceMiles, geometryCenter, geometryRings, pointInGeometry, toLocalField } from './fieldModel';
 import { fetchRemoteBoundary, listRemoteFields } from './integrations/boundaryServer';
 import { type BoundaryGeometry, importFiles } from './io/import';
@@ -506,12 +506,6 @@ function updateSummaries() {
     SHUTOFF_LABELS[m.shutoff],
   ].join(' · ');
 
-  const machine = [m.name];
-  const t = machineTracking();
-  if (t !== 1) machine.push(`${fmt(Math.abs(1 - t) * 100, 1)}% ${t < 1 ? 'under' : 'over'}`);
-  const b = machineBias();
-  if (b) machine.push(`bias ${b > 0 ? '+' : '−'}${fmt(Math.abs(b) * 100, 1)}%`);
-  $('machineSummary').textContent = machine.join(' · ');
 
   $('breakdownSummary').textContent = result
     ? `${fmtPct(result.appliedM2 / result.surfaceM2 - 1)} overlap · ${fmt(result.coverage.overlapAreaM2 / SQ_M_PER_ACRE)} ac doubled`
@@ -688,62 +682,6 @@ function renderResults() {
     .join('');
 
   syncAdjustUi();
-  renderMidField();
-}
-
-function renderMidField() {
-  const out = $('midAnswer');
-  const unit = settings.product.unit;
-  if (!result) {
-    out.innerHTML = '';
-    return;
-  }
-  const applied = num($('midAppliedInput'));
-  const left = num($('midLeftInput'));
-  if (applied === undefined || left === undefined) {
-    out.innerHTML = '<p class="muted small">Fill in both numbers.</p>';
-    return;
-  }
-  const plannedAppliedAc = result.appliedM2 / SQ_M_PER_ACRE;
-  const displayRate = settings.product.rate;
-  const byDensity = settings.product.adjustBy === 'density';
-  const trueDensity = settings.product.density;
-  // In density mode, what's going on the ground depends on the density
-  // programmed now (the app's suggestion unless the operator says otherwise).
-  const progNow = num($('midDensityInput')) ?? recommendedDensity ?? trueDensity;
-  const densityReady = byDensity && !!trueDensity && !!progNow;
-  const actualNow = densityReady ? actualRateAt(trueDensity!, displayRate, progNow!) : displayRate;
-  const m = adviseMidField({
-    plannedAppliedAc,
-    appliedSoFarAc: applied,
-    remaining: left,
-    currentRate: actualNow,
-    bias: machineBias(),
-    tracking: machineTracking(),
-  });
-  if (!m) {
-    out.innerHTML = `<p class="muted small">Monitor already shows the planned ${fmt(plannedAppliedAc)} applied ac or more.</p>`;
-    return;
-  }
-  const balance = `<p class="muted small">At the current setting you'd ${m.balance < 0 ? 'run out' : 'have left over'} about ${fmtQty(Math.abs(m.balance), unit)}.</p>`;
-  if (byDensity && !trueDensity) {
-    out.innerHTML = '<p class="muted small">Enter the product density in the Product card.</p>';
-    return;
-  }
-  if (densityReady) {
-    const newDensity = densityFor(trueDensity!, displayRate, m.rateToFinish);
-    const ch = newDensity / progNow! - 1;
-    out.innerHTML = `
-      <div class="muted small">About ${fmt(m.remainingAc)} applied ac to go. Set density to</div>
-      <div class="big">${fmt(newDensity, 1)} <span class="answer-unit">lb/ft³</span></div>
-      <div class="answer-change ${ch > 0 ? 'down' : 'up'}">${fmtPct(ch)} vs. ${fmt(progNow!, 1)} now</div>
-      <p class="muted small">Leave the rate at ${fmt(displayRate, 1)} ${esc(unit)}/ac.</p>${balance}`;
-    return;
-  }
-  out.innerHTML = `
-    <div class="muted small">About ${fmt(m.remainingAc)} applied ac to go. Set rate to</div>
-    <div class="big">${fmt(m.rateToFinish, m.rateToFinish >= 100 ? 1 : 2)} <span class="answer-unit">${esc(unit)}/ac</span></div>
-    <div class="answer-change ${m.changePct < 0 ? 'down' : 'up'}">${fmtPct(m.changePct)} vs. ${fmt(displayRate, 1)}</div>${balance}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -760,7 +698,7 @@ function prefillJobCheck() {
   }
   setIfEmpty('ckLoaded', p.loaded);
   setIfEmpty('ckRequested', p.rate);
-  setIfEmpty('ckAcres', num($('midAppliedInput') as HTMLInputElement) ?? (result ? result.appliedM2 / SQ_M_PER_ACRE : undefined));
+  setIfEmpty('ckAcres', result ? result.appliedM2 / SQ_M_PER_ACRE : undefined);
   if (p.adjustBy === 'density') {
     setIfEmpty('ckTrueDensity', p.density);
     setIfEmpty('ckProgDensity', recommendedDensity);
@@ -899,7 +837,6 @@ function openMachineSheet(tab: 'machine' | 'calibrate' = 'machine') {
   openSheet('machineSheet');
 }
 
-$('machineRowBtn').addEventListener('click', () => openMachineSheet());
 $('machineBtn').addEventListener('click', () => openMachineSheet());
 onSeg('machineTabs', (v) => showMachineTab(v as 'machine' | 'calibrate'));
 for (const id of ['ckLoaded', 'ckLeft', 'ckAcres', 'ckAchieved', 'ckRequested', 'ckProgDensity', 'ckTrueDensity']) {
@@ -1397,7 +1334,6 @@ function syncControls() {
   syncAdjustUi();
   updateSummaries();
   $('loadedUnitOpt').textContent = p.unit;
-  $('midLeftUnit').textContent = p.unit;
 }
 
 function planChanged() {
@@ -1532,10 +1468,6 @@ function syncAdjustUi() {
   const byDensity = settings.product.adjustBy === 'density';
   setSeg('adjustSeg', byDensity ? 'density' : 'rate');
   $('densityBlock').hidden = !byDensity;
-  $('midDensityField').hidden = !byDensity;
-  ($('midDensityInput') as HTMLInputElement).placeholder = recommendedDensity
-    ? `${fmt(recommendedDensity, 1)} (suggested above)`
-    : '';
 }
 
 function productChanged() {
@@ -1549,7 +1481,6 @@ function productChanged() {
   };
   $('loadedUnitOpt').textContent = settings.product.unit;
   ($('loadedInput') as HTMLInputElement).placeholder = settings.product.loadedAs === 'acres' ? 'e.g. 67' : 'e.g. 24000';
-  $('midLeftUnit').textContent = settings.product.unit;
   saveSettings();
   renderResults();
 }
@@ -1560,13 +1491,10 @@ onSeg('adjustSeg', (v) => {
   renderResults();
 });
 $('densityInput').addEventListener('input', productChanged);
-$('midDensityInput').addEventListener('input', renderMidField);
 $('rateInput').addEventListener('input', productChanged);
 $('unitSelect').addEventListener('change', productChanged);
 $('loadedInput').addEventListener('input', productChanged);
 $('loadedAsSelect').addEventListener('change', productChanged);
-$('midAppliedInput').addEventListener('input', renderMidField);
-$('midLeftInput').addEventListener('input', renderMidField);
 
 // Select-all on focus makes retyping numbers with gloves on much easier.
 for (const el of document.querySelectorAll<HTMLInputElement>('input[type="number"]')) {

@@ -19,7 +19,7 @@ stays at the prescription.
 
 **Machine bias (shim):** each machine can carry a percent it typically runs
 off, such as a spreader that puts out 3% more than the monitor says. Every
-suggested rate or density, and the mid-field check, is corrected for it.
+suggested rate or density is corrected for it.
 
 **Several fields on one ticket:** in the Field list, tap **Select several**,
 tick the fields, and tap **Plan together**. Each field is still planned on its
@@ -34,15 +34,12 @@ and every answer accounts for it.
 
 **Machine & calibration window:** machine setup (width, sections, bias,
 average rate decrease) and the finished-job check live in their own window,
-opened with 🚜 in the top bar or the Machine row on the main screen.
+opened with 🚜 in the top bar.
 
 **Check a finished job:** enter the load, what's left, and the monitor's
 applied acres and average rate. The app separates rate tracking from what
 remains, shows the true product density or the machine bias that would explain
 the remainder, and saves the one you pick.
-
-A **Mid-field check** takes what the monitor and bin show partway through
-and tells you the rate that finishes the field empty.
 
 ## Why applied acres differ from surface acres
 
@@ -127,7 +124,7 @@ dependencies and runs in a web worker.
 | --- | --- |
 | `src/engine/plan.ts` | Headland laps, passes, section shutoff, heading optimizer |
 | `src/engine/coverage.ts` | Rasterized coverage map and overlap/skip totals |
-| `src/engine/rate.ts` | Rate adjustment and mid-field math |
+| `src/engine/rate.ts` | Rate, density, machine-factor and job-check math |
 | `src/io/import.ts` | Shapefile / KML / KMZ / GeoJSON import |
 | `src/map/googleTiles.ts` | Google satellite imagery (Map Tiles API) with live attribution |
 | `src/map/editor.ts` | Touch boundary editor (draw, drag, insert, remove, undo) |

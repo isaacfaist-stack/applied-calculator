@@ -145,12 +145,6 @@
           </div>
         </details>
 
-        <!-- Machine (settings live in the Machine & calibration window) -->
-        <button class="card machine-row" type="button" id="machineRowBtn">
-          <span class="mr-label">Machine</span>
-          <span class="mr-summary" id="machineSummary"></span>
-          <span class="mr-chev" aria-hidden="true">›</span>
-        </button>
 
         <!-- Breakdown -->
         <details class="card fold" id="breakdownCard" open hidden>
@@ -172,35 +166,6 @@
           <p class="muted small">Exclusions are areas inside the boundary that don't get product, like waterways, farmsteads and ponds.</p>
         </details>
 
-        <!-- Mid-field -->
-        <details class="card fold" id="midCard">
-          <summary><h2>Mid-field check</h2><span class="muted">Running long or short?</span></summary>
-          <p class="muted small">Enter what the monitor and bin show now to get the rate that finishes the field empty.</p>
-          <div class="grid2">
-            <label class="field">
-              <span>Applied acres so far (monitor)</span>
-              <div class="input-unit">
-                <input id="midAppliedInput" type="number" inputmode="decimal" min="0" step="any" />
-                <span class="suffix">ac</span>
-              </div>
-            </label>
-            <label class="field">
-              <span>Product left</span>
-              <div class="input-unit">
-                <input id="midLeftInput" type="number" inputmode="decimal" min="0" step="any" />
-                <span class="suffix" id="midLeftUnit">lb</span>
-              </div>
-            </label>
-          </div>
-          <label class="field" id="midDensityField" hidden>
-            <span>Density programmed now <em>(optional)</em></span>
-            <div class="input-unit">
-              <input id="midDensityInput" type="number" inputmode="decimal" min="1" step="any" />
-              <span class="suffix">lb/ft³</span>
-            </div>
-          </label>
-          <div class="mid-answer" id="midAnswer"></div>
-        </details>
 
 
         <p class="footnote muted small">
