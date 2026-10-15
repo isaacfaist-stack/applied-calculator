@@ -107,6 +107,26 @@ thinned for editing (the app says how closely the shape is kept), and
 4. Enter the target rate, plus the amount loaded if you know it. The big
    number at the top is what to set on the controller.
 
+### New job from a blend ticket
+
+Tap **＋ New job** and choose the blend ticket PDF (from Files, Mail or
+AirDrop). The app reads the ticket offline: grower, field name and Agvance
+field ID, ticket acres, blend rate (lb/ac), total blend weight, density, the
+products in the blend and the application method. Then:
+
+1. **Field:** saved fields that match the ticket are listed and the best match
+   is ticked. If the field isn't saved yet, import its boundary file or draw
+   it right there. Tick several fields if one ticket covers them.
+2. **Confirm:** check the rate, product given, density and machine. The app
+   warns when the ticket acres and the boundary acres don't agree.
+3. **Start job:** everything is filled in and the plan runs. The field
+   remembers the ticket's Agvance field ID, so the next ticket for that field
+   finds it straight away.
+
+Tickets have to be real PDFs with text in them, which is how Agvance prints
+them. A scan or a photo of a paper ticket can't be read; enter it by hand
+with **No ticket**.
+
 ### Satellite map and drawing boundaries
 
 - **Imagery:** Google satellite, Google satellite with roads and labels, or

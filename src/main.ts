@@ -11,6 +11,7 @@ import { adviseRate, checkJob, densityFor } from './engine/rate';
 import { type ExclusionKind, type LocalField, distanceMiles, geometryCenter, geometryRings, pointInGeometry, toLocalField } from './fieldModel';
 import { fetchRemoteBoundary, listRemoteFields } from './integrations/boundaryServer';
 import { type BoundaryGeometry, importFiles } from './io/import';
+import { type Ticket, importTicket } from './io/ticket';
 import { PolygonEditor } from './map/editor';
 import {
   GoogleMapsError,
@@ -534,6 +535,15 @@ function updateSummaries() {
   if (p.loaded) product.push(p.loadedAs === 'acres' ? `${fmt(p.loaded, 2)} acres' worth` : fmtQty(p.loaded, p.unit));
   product.push(densityMode() ? `density${p.density ? ` ${fmt(p.density, 1)}` : ''}` : 'by rate');
   $('productSummary').textContent = product.join(' · ');
+  const j = settings.job;
+  $('jobTag').hidden = !j;
+  if (j) {
+    const who = [j.grower, j.fieldName].filter(Boolean).join(' – ');
+    $('jobTag').innerHTML =
+      `<strong>${j.ticketNo ? `Ticket ${esc(j.ticketNo)}` : 'Blend ticket'}</strong>${who ? ` · ${esc(who)}` : ''}` +
+      `${j.acres ? ` · ${fmt(j.acres, 2)} ac on ticket` : ''}` +
+      `${j.products?.length ? `<span class="muted small">${esc(j.products.join(' + '))}</span>` : ''}`;
+  }
 
   $('planSummary').textContent = [
     `${plan.laps} headland lap${plan.laps === 1 ? '' : 's'}`,
@@ -954,6 +964,8 @@ function selectFields(ids: string[], opts: { keepView?: boolean } = {}) {
   drawPlanLayers();
   settings.lastFieldId = activeField?.id;
   settings.lastFieldIds = entries.map((e) => e.field.id);
+  // A ticket job belongs to its fields; choosing others ends it.
+  if (settings.job && settings.job.fieldIds.join() !== settings.lastFieldIds.join()) delete settings.job;
   saveSettings();
   // Boundary tools edit one field at a time.
   $('boundaryTools').hidden = !entries.length;
@@ -1119,7 +1131,9 @@ function openFields() {
 
 $('fieldBtn').addEventListener('click', openFields);
 document.addEventListener('click', (e) => {
-  if ((e.target as HTMLElement).closest('[data-action="open-fields"]')) openFields();
+  const t = e.target as HTMLElement;
+  if (t.closest('[data-action="open-fields"]')) openFields();
+  if (t.closest('[data-action="new-job"]')) openJob();
 });
 
 function addFields(items: { name: string; grower?: string; farm?: string; geometry: BoundaryGeometry }[], source: string) {
@@ -1306,11 +1320,22 @@ function saveEdit() {
   }
   const mode = editSession.mode;
   if (mode === 'new') {
-    const name = prompt('Field name?', 'New field');
+    const fromJob = job?.drawing ? job : null;
+    const name = prompt('Field name?', fromJob?.ticket?.fieldName || 'New field');
     if (name === null) return;
     stopEdit();
-    const [added] = addFields([{ name: name.trim() || 'New field', geometry: { type: 'Polygon', coordinates: [closeRing(pts)] } }], 'drawn');
+    const [added] = addFields(
+      [{ name: name.trim() || 'New field', grower: fromJob?.ticket?.grower, geometry: { type: 'Polygon', coordinates: [closeRing(pts)] } }],
+      'drawn',
+    );
     selectField(added.id);
+    if (fromJob) {
+      fromJob.drawing = false;
+      fromJob.offered.unshift(added.id);
+      fromJob.picked.add(added.id);
+      showJobStep(2);
+      openSheet('jobSheet');
+    }
     return;
   }
   const f = fields.find((x) => x.id === editSession!.fieldId);
@@ -1891,7 +1916,7 @@ let setupAdjust: 'rate' | 'density' = 'rate';
 
 function showSetupStep(n: number) {
   setupStep = n;
-  for (const pane of document.querySelectorAll<HTMLElement>('.setup-pane')) pane.hidden = pane.dataset.s !== String(n);
+  for (const pane of document.querySelectorAll<HTMLElement>('#setupSheet .setup-pane')) pane.hidden = pane.dataset.s !== String(n);
   for (const li of document.querySelectorAll<HTMLElement>('#setupSteps li')) {
     const s = Number(li.dataset.s);
     li.classList.toggle('active', s === n);
@@ -2011,6 +2036,359 @@ $('suDemo').addEventListener('click', () => {
 $('rerunSetupBtn').addEventListener('click', () => {
   ($('settingsSheet') as HTMLDialogElement).close();
   openSetup();
+});
+
+
+// ---------------------------------------------------------------------------
+// New job from a blend ticket: read the ticket, pick or bring in the field,
+// confirm the numbers, start.
+
+interface JobDraft {
+  ticket: Ticket | null;
+  /** Fields listed in the Field step (matches and new imports), in order. */
+  offered: string[];
+  picked: Set<string>;
+  /** Drawing a boundary on the map for this job. */
+  drawing?: boolean;
+}
+let job: JobDraft | null = null;
+let jobStep = 1;
+
+const norm = (s?: string) => (s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** How well a saved field fits the ticket: Agvance ID, then field and grower names. */
+function ticketMatch(f: FieldRecord, t: Ticket): number {
+  let score = 0;
+  if (t.fieldId && f.externalId && norm(f.externalId) === norm(t.fieldId)) score += 100;
+  const fn = norm(f.name);
+  const tn = norm(t.fieldName);
+  if (tn && fn === tn) score += 60;
+  else if (tn && fn && (fn.includes(tn) || tn.includes(fn))) score += 35;
+  const fieldNo = t.fieldId?.split('/')[1]?.trim();
+  if (fieldNo && fieldNo.length >= 3 && new RegExp(`\\b${fieldNo}\\b`).test(f.name)) score += 30;
+  const g = norm(f.grower);
+  const tg = norm(t.grower);
+  if (score && g && tg && (g.includes(tg) || tg.includes(g))) score += 20;
+  return score;
+}
+
+function showJobStep(n: number) {
+  jobStep = n;
+  for (const pane of document.querySelectorAll<HTMLElement>('#jobSheet .job-pane')) pane.hidden = pane.dataset.s !== String(n);
+  for (const li of document.querySelectorAll<HTMLElement>('#jobSteps li')) {
+    const s = Number(li.dataset.s);
+    li.classList.toggle('active', s === n);
+    li.classList.toggle('done', s < n);
+  }
+  $('jobError').hidden = true;
+  ($('jobBack') as HTMLButtonElement).hidden = n === 1;
+  $('jobNext').textContent = n === 3 ? 'Start job' : 'Next';
+  if (n === 2) renderJobFields();
+  if (n === 3) fillJobConfirm();
+}
+
+function jobError(msg: string) {
+  $('jobError').textContent = msg;
+  $('jobError').hidden = false;
+}
+
+function openJob() {
+  if (editSession) stopEdit();
+  (document.getElementById('fieldsSheet') as HTMLDialogElement).close();
+  job = { ticket: null, offered: [], picked: new Set() };
+  $('jobTicketRead').hidden = true;
+  $('jobTicketRead').innerHTML = '';
+  showTicketPicked(false);
+  ($('jobFieldSearch') as HTMLInputElement).value = '';
+  showJobStep(1);
+  openSheet('jobSheet');
+}
+
+/** Once a ticket is read, shrink the choices so the summary and Next fit. */
+function showTicketPicked(picked: boolean) {
+  $('jobNoTicket').hidden = picked;
+  $('jobTicketPick').textContent = picked ? 'Choose a different ticket' : 'Choose blend ticket PDF';
+  $('jobTicketPickSub').hidden = picked;
+  $('jobTicketPick').closest('.choice')!.classList.toggle('compact', picked);
+}
+
+function renderTicketRead(t: Ticket) {
+  const unit = t.unit ?? 'lb';
+  const rows: [string, string | undefined][] = [
+    ['Ticket', t.ticketNo],
+    ['Grower', t.grower],
+    ['Field', [t.fieldName, t.fieldId && `(${t.fieldId})`].filter(Boolean).join(' ')],
+    ['Acres', t.acres !== undefined ? `${fmt(t.acres, 2)} ac` : undefined],
+    ['Rate', t.rate !== undefined ? `${fmt(t.rate, t.rate >= 100 ? 0 : 1)} ${unit}/ac` : undefined],
+    ['Product', t.total !== undefined ? fmtQty(t.total, unit) + (t.batches && t.batches > 1 ? ` in ${t.batches} batches` : '') : undefined],
+    ['Density', t.density !== undefined ? `${fmt(t.density, 2)} lb/ft³` : undefined],
+    ['Blend', t.products.map((p) => `${p.name} ${fmt(p.rate, 0)}`).join(' + ') || undefined],
+    ['Applied with', t.application],
+    ['Crop', t.crop],
+  ];
+  const missing = ['Rate', 'Product', 'Acres'].filter((k) => !rows.find((r) => r[0] === k)?.[1]);
+  $('jobTicketRead').innerHTML =
+    `<dl class="kv">${rows
+      .filter((r) => r[1])
+      .map(([k, v]) => `<dt>${k}</dt><dd>${esc(v!)}</dd>`)
+      .join('')}</dl>` +
+    (missing.length ? `<p class="muted small">Not found on the ticket: ${missing.join(', ').toLowerCase()}. You can type it in on the last step.</p>` : '');
+  $('jobTicketRead').hidden = false;
+}
+
+$('jobTicketFile').addEventListener('change', async (e) => {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file || !job) return;
+  $('jobError').hidden = true;
+  $('jobTicketRead').hidden = false;
+  $('jobTicketRead').innerHTML = '<p class="muted">Reading ticket…</p>';
+  try {
+    const t = await importTicket(file);
+    job.ticket = t;
+    renderTicketRead(t);
+    showTicketPicked(true);
+    // Offer the fields that fit; tick the best one when it's clear.
+    const scored = fields
+      .map((f) => ({ f, s: ticketMatch(f, t) }))
+      .filter((x) => x.s >= 35)
+      .sort((a, b) => b.s - a.s)
+      .slice(0, 6);
+    job.offered = scored.map((x) => x.f.id);
+    job.picked = new Set();
+    if (scored[0] && scored[0].s >= 60 && (!scored[1] || scored[1].s < scored[0].s)) job.picked.add(scored[0].f.id);
+  } catch (err) {
+    job.ticket = null;
+    $('jobTicketRead').hidden = true;
+    showTicketPicked(false);
+    jobError((err as Error).message || 'Couldn’t read that PDF.');
+  }
+});
+
+$('jobNoTicket').addEventListener('click', () => {
+  if (!job) return;
+  job.ticket = null;
+  job.offered = entries.map((e) => e.field.id);
+  job.picked = new Set(job.offered);
+  showJobStep(2);
+});
+
+function renderJobFields() {
+  if (!job) return;
+  const t = job.ticket;
+  $('jobFieldHint').textContent = t
+    ? job.offered.length
+      ? `Saved fields that look like ${t.fieldName ? `“${t.fieldName}”` : 'this ticket'}. Tick every field on the ticket.`
+      : `No saved field matches ${t.fieldName ? `“${t.fieldName}”` : 'this ticket'}. Import its boundary, draw it, or search your saved fields.`
+    : 'Tick every field for this job, or import or draw its boundary.';
+  const q = norm(($('jobFieldSearch') as HTMLInputElement).value);
+  const extra = q
+    ? fields.filter((f) => !job!.offered.includes(f.id) && [f.name, f.grower, f.farm].some((s) => norm(s).includes(q))).slice(0, 8)
+    : [];
+  const list = [...job.offered.map((id) => fields.find((f) => f.id === id)).filter((f): f is FieldRecord => !!f), ...extra];
+  $('jobFieldList').innerHTML = list.length
+    ? list
+        .map((f) => {
+          const on = job!.picked.has(f.id);
+          return `<li class="${on ? 'checked' : ''}">
+            <span class="check" aria-hidden="true">${on ? '✓' : ''}</span>
+            <button type="button" class="pick" data-job-field="${f.id}" role="checkbox" aria-checked="${on}">
+              <span class="name">${esc(f.name)}</span>
+              <span class="meta">${esc(cachedMeta(f))}</span>
+            </button>
+          </li>`;
+        })
+        .join('')
+    : '';
+  $('jobFieldList').hidden = !list.length;
+}
+
+$('jobFieldList').addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLElement>('[data-job-field]');
+  if (!b || !job) return;
+  const id = b.dataset.jobField!;
+  if (job.picked.has(id)) job.picked.delete(id);
+  else {
+    job.picked.add(id);
+    if (!job.offered.includes(id)) job.offered.push(id);
+  }
+  $('jobError').hidden = true;
+  renderJobFields();
+});
+$('jobFieldSearch').addEventListener('input', renderJobFields);
+
+$('jobBoundaryFile').addEventListener('change', async (e) => {
+  const input = e.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
+  input.value = '';
+  if (!files.length || !job) return;
+  try {
+    const items = await importFiles(files);
+    const added = addFields(items, files.map((f) => f.name).join(', '));
+    const t = job.ticket;
+    job.offered = [...added.map((f) => f.id), ...job.offered];
+    if (added.length === 1) job.picked.add(added[0].id);
+    else if (t) {
+      const best = added.filter((f) => ticketMatch(f, t) >= 35);
+      for (const f of best) job.picked.add(f.id);
+    }
+    renderJobFields();
+    drawBoundary();
+    toast(added.length === 1 ? `Imported ${added[0].name}` : `Imported ${added.length} fields — tick the ones on this ticket`);
+  } catch (err) {
+    toast((err as Error).message, true);
+  }
+});
+
+$('jobDraw').addEventListener('click', () => {
+  if (!job) return;
+  job.drawing = true;
+  ($('jobSheet') as HTMLDialogElement).close();
+  startEdit('new');
+  toast('Draw the field, then tap Done to come back to the job.');
+});
+$('drawCancel').addEventListener('click', () => {
+  if (!job?.drawing) return;
+  job.drawing = false;
+  showJobStep(2);
+  openSheet('jobSheet');
+});
+
+function jobFields(): FieldRecord[] {
+  return job ? [...job.picked].map((id) => fields.find((f) => f.id === id)).filter((f): f is FieldRecord => !!f) : [];
+}
+
+function jobBoundaryAcres(list: FieldRecord[]): number {
+  let acres = 0;
+  for (const f of list) {
+    try {
+      acres += toLocalField(f.geometry, holeKindsOf(f)).acres;
+    } catch {
+      /* skip bad geometry */
+    }
+  }
+  return acres;
+}
+
+function fillJobConfirm() {
+  if (!job) return;
+  const t = job.ticket;
+  const p = settings.product;
+  const unit = t?.unit ?? p.unit;
+  ($('jobRate') as HTMLInputElement).value = String(t?.rate ?? (p.rate || ''));
+  ($('jobUnit') as HTMLSelectElement).value = unit;
+  ($('jobTotal') as HTMLInputElement).value = t ? (t.total !== undefined ? String(t.total) : '') : '';
+  ($('jobDensity') as HTMLInputElement).value = String(t?.density ?? p.density ?? '');
+  const app = norm(t?.application);
+  const machine = (app && machines.find((m) => norm(m.name).includes(app))) || activeMachine();
+  $('jobMachine').innerHTML = machines
+    .map((m) => `<option value="${m.id}" ${m.id === machine.id ? 'selected' : ''}>${esc(m.name)}</option>`)
+    .join('');
+  const list = jobFields();
+  const acres = jobBoundaryAcres(list);
+  $('jobFieldsSum').innerHTML = `<strong>${esc(list.map((f) => f.name).join(' + '))}</strong> · ${fmt(acres, 2)} ac boundary`;
+  updateJobConfirm();
+}
+
+function updateJobConfirm() {
+  if (!job) return;
+  const unit = ($('jobUnit') as HTMLSelectElement).value;
+  $('jobTotalUnit').textContent = unit;
+  $('jobDensityField').hidden = !isDryUnit(unit);
+  const t = job.ticket;
+  const acres = jobBoundaryAcres(jobFields());
+  const rate = num($('jobRate') as HTMLInputElement);
+  const total = num($('jobTotal') as HTMLInputElement);
+  const note = $('jobAcresNote');
+  const worth = rate && total ? total / rate : undefined;
+  const ticketAcres = t?.acres ?? worth;
+  const lines: string[] = [];
+  const off = ticketAcres && acres ? acres / ticketAcres - 1 : 0;
+  if (Math.abs(off) > 0.015) {
+    lines.push(
+      `The ticket was figured on <b>${fmt(ticketAcres!, 2)} ac</b> but the boundary is <b>${fmt(acres, 2)} ac</b> (${fmtPct(off)}).` +
+        (Math.abs(off) > 0.25 ? ' <b>That’s a big difference — check this is the right field.</b>' : ''),
+    );
+  }
+  note.classList.toggle('severe', Math.abs(off) > 0.25);
+  if (worth && t?.acres && Math.abs(worth / t.acres - 1) > 0.01) {
+    lines.push(`The product is ${fmt(worth, 2)} acres' worth at ${fmt(rate!, 0)} ${unit}/ac, not the ${fmt(t.acres, 2)} ac on the ticket.`);
+  }
+  if (lines.length) lines.push('The answer will spread exactly the product given over the real field.');
+  note.innerHTML = lines.map((l) => `<p>${l}</p>`).join('');
+  note.hidden = !lines.length;
+}
+for (const id of ['jobRate', 'jobTotal']) $(id).addEventListener('input', updateJobConfirm);
+$('jobUnit').addEventListener('change', updateJobConfirm);
+
+function startJob() {
+  if (!job) return;
+  const list = jobFields();
+  if (!list.length) {
+    showJobStep(2);
+    return jobError('Tick the field for this job.');
+  }
+  const rate = num($('jobRate') as HTMLInputElement);
+  if (!rate || rate <= 0) return jobError('Enter the target rate.');
+  const unit = ($('jobUnit') as HTMLSelectElement).value;
+  const total = num($('jobTotal') as HTMLInputElement);
+  const density = num($('jobDensity') as HTMLInputElement);
+  const machineId = ($('jobMachine') as HTMLSelectElement).value;
+  const t = job.ticket;
+
+  settings.activeMachineId = machineId;
+  settings.product = {
+    ...settings.product,
+    rate,
+    unit,
+    loaded: total && total > 0 ? total : undefined,
+    loadedAs: 'product',
+    density: isDryUnit(unit) && density ? density : settings.product.density,
+  };
+  if (!isDryUnit(unit)) settings.product.adjustBy = 'rate';
+
+  // Remember the ticket's IDs on the field so the next ticket finds it.
+  const now = Date.now();
+  list.forEach((f, i) => {
+    const upd: FieldRecord = { ...f, updatedAt: now };
+    if (t?.fieldId && list.length === 1) upd.externalId = t.fieldId;
+    if (t?.grower && !f.grower) upd.grower = t.grower;
+    if (i === 0) upd.prefs = { ...f.prefs, machineId };
+    store.upsertField(upd);
+  });
+  fields = store.fields();
+  settings.job = t
+    ? {
+        ticketNo: t.ticketNo,
+        grower: t.grower,
+        fieldName: t.fieldName,
+        acres: t.acres,
+        crop: t.crop,
+        products: t.products.map((p) => p.name),
+        fieldIds: list.map((f) => f.id),
+        startedAt: now,
+      }
+    : undefined;
+  saveSettings();
+  ($('jobSheet') as HTMLDialogElement).close();
+  job = null;
+  selectFields(list.map((f) => f.id));
+  toast(t?.ticketNo ? `Ticket ${t.ticketNo} started` : 'Job started');
+}
+
+$('jobBack').addEventListener('click', () => showJobStep(Math.max(1, jobStep - 1)));
+$('jobNext').addEventListener('click', () => {
+  if (!job) return;
+  if (jobStep === 1) {
+    if (!job.ticket) return jobError('Choose the blend ticket PDF, or tap “No ticket”.');
+    showJobStep(2);
+  } else if (jobStep === 2) {
+    if (!job.picked.size) return jobError('Tick the field, or import or draw its boundary.');
+    showJobStep(3);
+  } else {
+    startJob();
+  }
 });
 
 // ---------------------------------------------------------------------------

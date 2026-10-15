@@ -9,6 +9,8 @@ export interface FieldRecord {
   name: string;
   grower?: string;
   farm?: string;
+  /** Agvance field ID from a blend ticket ("GROWER / 12345"), for matching the next ticket. */
+  externalId?: string;
   geometry: BoundaryGeometry;
   source: string;
   createdAt: number;
@@ -62,6 +64,18 @@ export interface ProductSettings {
   density?: number;
 }
 
+/** The blend ticket the current job was started from. */
+export interface JobRecord {
+  ticketNo?: string;
+  grower?: string;
+  fieldName?: string;
+  acres?: number;
+  crop?: string;
+  products?: string[];
+  fieldIds: string[];
+  startedAt: number;
+}
+
 export type Imagery = 'google-satellite' | 'google-hybrid' | 'esri';
 
 export interface Settings {
@@ -75,6 +89,8 @@ export interface Settings {
   /** Google Maps Platform key (Map Tiles API); overrides the build-time key. */
   googleKey?: string;
   imagery?: Imagery;
+  /** Current job from a blend ticket; cleared when other fields are chosen. */
+  job?: JobRecord;
   /** First-run setup finished or skipped. */
   setupDone?: boolean;
 }

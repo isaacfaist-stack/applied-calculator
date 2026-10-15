@@ -1438,7 +1438,8 @@ dialog.setup {
   margin-top: 20px;
 }
 
-.setup-nav #setupNext {
+.setup-nav #setupNext,
+.setup-nav #jobNext {
   margin-left: auto;
   min-width: 140px;
 }
@@ -1494,4 +1495,76 @@ dialog.setup {
 
 .boundary-field h4 {
   margin: 18px 0 8px;
+}
+
+/* New job from a blend ticket ------------------------------------------------- */
+
+.newjob-btn {
+  min-height: 40px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+.hero-ticket {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+
+.job-tag {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  font-size: 0.95rem;
+}
+
+.ticket-read {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.ticket-read .kv dd {
+  overflow-wrap: anywhere;
+}
+
+.ticket-read p {
+  margin: 10px 0 0;
+}
+
+.job-fields:empty,
+.job-fields[hidden] {
+  display: none;
+}
+
+.job-fields-sum {
+  font-size: 1.05rem;
+}
+
+#jobAcresNote p {
+  margin: 0;
+}
+
+#jobAcresNote p + p {
+  margin-top: 6px;
+}
+
+@media (max-width: 520px) {
+  .newjob-btn {
+    padding: 0 10px;
+  }
+}
+
+.choice.compact {
+  min-height: 48px;
+  padding: 10px 16px;
 }

@@ -23,6 +23,7 @@
     "clipper-lib": "^6.4.2",
     "jszip": "^3.10.2",
     "leaflet": "^1.9.4",
+    "pdfjs-dist": "^6.4.299",
     "shpjs": "^6.2.0"
   },
   "devDependencies": {
