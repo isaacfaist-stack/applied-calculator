@@ -1499,21 +1499,7 @@ dialog.setup {
 
 /* New job from a blend ticket ------------------------------------------------- */
 
-.newjob-btn {
-  min-height: 40px;
-  padding: 0 14px;
-  white-space: nowrap;
-}
 
-.hero-ticket {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 10px 0 0;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: var(--accent-soft);
-}
 
 .job-tag {
   display: flex;
@@ -1558,11 +1544,6 @@ dialog.setup {
   margin-top: 6px;
 }
 
-@media (max-width: 520px) {
-  .newjob-btn {
-    padding: 0 10px;
-  }
-}
 
 .choice.compact {
   min-height: 48px;

@@ -536,6 +536,7 @@ function updateSummaries() {
   product.push(densityMode() ? `density${p.density ? ` ${fmt(p.density, 1)}` : ''}` : 'by rate');
   $('productSummary').textContent = product.join(' · ');
   const j = settings.job;
+  $('fieldBtnLabel').textContent = j?.ticketNo ? `Ticket ${j.ticketNo}${j.grower ? ` · ${j.grower}` : ''}` : entries.length > 1 ? 'Fields' : 'Field';
   $('jobTag').hidden = !j;
   if (j) {
     const who = [j.grower, j.fieldName].filter(Boolean).join(' – ');
@@ -564,7 +565,7 @@ function updateSummaries() {
     : 'not chosen';
   $('fieldCurrent').innerHTML = entries.length
     ? `<strong>${esc(names.join(' + '))}</strong> · ${fmt(acres)} ac${entries.length === 1 && entries[0].field.grower ? ` · ${esc(entries[0].field.grower)}` : ''}`
-    : 'No field chosen yet.';
+    : 'No field chosen yet. Tap the field name at the top to load a blend ticket or pick a field.';
 
   // Step badges and the empty-state checklist.
   const done1 = entries.length > 0;
@@ -1895,11 +1896,6 @@ document.addEventListener('click', (e) => {
   $('helpBody').innerHTML = h.body;
   openSheet('helpSheet');
 }, true);
-
-$('fieldSeveralBtn').addEventListener('click', () => {
-  openFields();
-  setMultiMode(true);
-});
 
 // ---------------------------------------------------------------------------
 // First-run setup: machine → product → first field.

@@ -15,13 +15,12 @@
   <body>
     <header class="topbar">
       <button class="field-btn" id="fieldBtn" type="button">
-        <span class="field-btn-label">Field</span>
+        <span class="field-btn-label" id="fieldBtnLabel">Field</span>
         <span class="field-btn-name" id="fieldName">Choose a field</span>
         <span class="chev" aria-hidden="true">▾</span>
       </button>
       <div class="topbar-right">
         <span class="gps-chip" id="gpsChip" hidden></span>
-        <button class="btn primary newjob-btn" id="newJobBtn" type="button" data-action="new-job">＋ New job</button>
         <button class="icon-btn" id="machineBtn" type="button" aria-label="Machine and calibration">🚜</button>
         <button class="icon-btn" id="settingsBtn" type="button" aria-label="Settings">⚙︎</button>
       </div>
@@ -33,9 +32,8 @@
         <div class="card hero" id="hero">
           <div class="hero-empty" id="heroEmpty">
             <p class="hero-title">Three steps to your rate</p>
-            <p class="hero-ticket">Have a blend ticket? <button class="btn small-btn primary" type="button" data-action="new-job">Start a new job</button></p>
             <ol class="checklist">
-              <li id="ck1"><span class="ckmark"></span>Choose a field <button class="btn small-btn primary" type="button" data-action="open-fields">Choose</button></li>
+              <li id="ck1"><span class="ckmark"></span>Load a blend ticket or choose a field <button class="btn small-btn primary" type="button" data-action="open-fields">Choose</button></li>
               <li id="ck2"><span class="ckmark"></span>Enter the product rate</li>
               <li id="ck3"><span class="ckmark"></span>Check the work plan</li>
             </ol>
@@ -60,12 +58,7 @@
         <!-- 1 Field -->
         <details class="card fold step-card" id="fieldCard" open>
           <summary><span class="step" id="step1">1</span><h2>Field</h2><span class="muted sum-hint" id="fieldSummary"></span></summary>
-          <div class="field-current" id="fieldCurrent">No field chosen yet.</div>
-          <div class="row gap wrap">
-            <button class="btn primary" type="button" data-action="open-fields">Choose field</button>
-            <button class="btn" type="button" id="fieldSeveralBtn">Several fields</button>
-            <button class="btn" type="button" data-action="new-job">New job from ticket</button>
-          </div>
+          <div class="field-current" id="fieldCurrent"></div>
           <div id="boundaryTools" hidden></div>
         </details>
 
@@ -212,16 +205,16 @@
     <!-- Fields sheet -->
     <dialog class="sheet" id="fieldsSheet">
       <div class="sheet-head">
-        <h2>Fields</h2>
+        <h2>Jobs &amp; fields</h2>
         <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
       </div>
       <div class="sheet-actions">
-        <label class="btn primary file-btn">
+        <button class="btn primary" type="button" id="newJobBtn" data-action="new-job">New job from ticket</button>
+        <label class="btn file-btn">
           Import file
           <input type="file" id="fileInput" multiple accept=".zip,.kml,.kmz,.geojson,.json,.shp,.dbf,.prj,.shx,.cpg" />
         </label>
         <button class="btn" type="button" id="drawBtn">Draw on map</button>
-        <button class="btn" type="button" data-action="new-job">New job from ticket</button>
         <button class="btn" type="button" id="syncBtn" hidden>Agvance fields</button>
         <button class="btn" type="button" id="multiBtn">Select several</button>
       </div>

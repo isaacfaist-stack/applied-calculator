@@ -109,7 +109,7 @@ thinned for editing (the app says how closely the shape is kept), and
 
 ### New job from a blend ticket
 
-Tap **＋ New job** and choose the blend ticket PDF (from Files, Mail or
+Tap the field name at the top, then **New job from ticket**, and choose the blend ticket PDF (from Files, Mail or
 AirDrop). The app reads the ticket offline: grower, field name and Agvance
 field ID, ticket acres, blend rate (lb/ac), total blend weight, density, the
 products in the blend and the application method. Then:
