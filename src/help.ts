@@ -141,8 +141,15 @@ export const HELP: Record<string, HelpEntry> = {
     title: 'Average rate decrease',
     body: `<p>Belts can't always keep up when ground speed changes, so the job average on the monitor comes in under the rate you asked for. Requested 250, job average 240: enter <b>4</b>.</p>`,
   },
+  callog: {
+    title: 'Calibration log',
+    body: `<p>Every finished job you add is kept for this machine. The app averages them, with bigger loads counting for more, to set the machine's <b>average rate decrease</b> and <b>bias</b>.</p>
+      <p>One job mixes the machine with that blend's density and whatever happened that day. Over several jobs, what stays the same is the machine. If the jobs disagree a lot, the difference is usually density changing from blend to blend, so measure density before trusting a bias.</p>
+      <p>A job that doesn't fit the others is flagged; tap <b>Counted</b> to leave it out. <b>Start over</b> clears the log and resets the machine to no corrections, for after a repair, new belt or new controller.</p>`,
+  },
   calibrate: {
     title: 'Check a finished job',
-    body: `<p>After a field, enter what really happened: product loaded, what's left, and the monitor's applied acres and average rate. The app splits the difference into the belt not keeping up (rate decrease) and whatever's left, which is either the product density or a machine bias. Save the one that fits.</p>`,
+    body: `<p>After a field, enter what really happened: product loaded, what's left, and the monitor's applied acres and average rate. The app splits the difference into the belt not keeping up (rate decrease) and whatever's left, which is either the product density or a machine bias.</p>
+      <p>Add each job to the <b>calibration log</b>. The machine's rate decrease and bias come from the average of the logged jobs, not from one load.</p>`,
   },
 };

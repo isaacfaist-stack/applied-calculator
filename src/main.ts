@@ -7,7 +7,7 @@ import { M_PER_FT, SQ_M_PER_ACRE, ringArea } from './engine/geometry';
 import { simplifyRing } from './engine/plan';
 import { makeProjection } from './engine/projection';
 import type { CornerStyle, ShutoffMode } from './engine/plan';
-import { type ChangePart, adviseRate, checkJob, densityFor, splitChange } from './engine/rate';
+import { type ChangePart, adviseRate, averageCalibration, checkJob, densityFor, splitChange } from './engine/rate';
 import { type ExclusionKind, type LocalField, distanceMiles, geometryCenter, geometryRings, pointInGeometry, toLocalField } from './fieldModel';
 import { fetchRemoteBoundary, listRemoteFields } from './integrations/boundaryServer';
 import { type BoundaryGeometry, importFiles } from './io/import';
@@ -23,7 +23,7 @@ import {
 import type { PlanRequest, PlanResponse } from './planWorker';
 import { DEMO_FIELD } from './demoField';
 import { HELP } from './help';
-import { type FieldRecord, type Imagery, type MachineRecord, type Settings, DEFAULT_MACHINES, store, uid } from './store';
+import { type CalibrationRecord, type FieldRecord, type Imagery, type MachineRecord, type Settings, DEFAULT_MACHINES, store, uid } from './store';
 
 registerSW({ immediate: true });
 
@@ -859,8 +859,14 @@ function prefillJobCheck() {
   $('ckRequestedUnit').textContent = `${unit}/ac`;
 }
 
+/** The job in the Calibrate form, ready to add to the log. */
+let ckCurrent: Omit<CalibrationRecord, 'id' | 'date' | 'label'> | null = null;
+/** Form contents last added, so the same job isn't added twice. */
+let ckAddedKey = '';
+
 function renderJobCheck() {
   const out = $('ckResult');
+  ckCurrent = null;
   const unit = settings.product.unit;
   const requested = num($('ckRequested') as HTMLInputElement);
   const loadedRaw = num($('ckLoaded') as HTMLInputElement);
@@ -875,14 +881,15 @@ function renderJobCheck() {
     return;
   }
   const used = loaded - left;
-  const r = checkJob({
+  const job = {
     requestedRate: requested,
     achievedRate: num($('ckAchieved') as HTMLInputElement),
     appliedAc: acres,
     used,
     trueDensity: num($('ckTrueDensity') as HTMLInputElement),
     programmedDensity: num($('ckProgDensity') as HTMLInputElement),
-  });
+  };
+  const r = checkJob(job);
   if (!r) {
     out.innerHTML = '<p class="muted small">Check the numbers: more left over than was loaded?</p>';
     return;
@@ -899,8 +906,7 @@ function renderJobCheck() {
   if (r.tracking !== undefined) {
     parts.push(`<div class="ck-row">
       <div><strong>Average rate decrease: ${fmt((1 - r.tracking) * 100, 1)}%</strong>
-      <div class="muted small">Averaged ${fmt(Math.abs(1 - r.tracking) * 100, 1)}% ${r.tracking < 1 ? 'under' : 'over'} the request. Saves to ${esc(m.name)}.</div></div>
-      <button class="btn" type="button" data-ck="tracking" data-v="${(r.tracking * 100).toFixed(1)}">Save to machine</button>
+      <div class="muted small">Averaged ${fmt(Math.abs(1 - r.tracking) * 100, 1)}% ${r.tracking < 1 ? 'under' : 'over'} the request on this job.</div></div>
     </div>`);
   } else {
     parts.push(
@@ -933,27 +939,159 @@ function renderJobCheck() {
     }
     parts.push(`<div class="ck-row">
       <div><strong>Or: machine puts out ${fmt(Math.abs(gap) * 100, 1)}% ${more ? 'more' : 'less'} than the monitor</strong>
-      <div class="muted small">Only if density was measured. Confirm over a few loads.</div></div>
-      <button class="btn" type="button" data-ck="bias" data-v="${(gap * 100).toFixed(1)}">Save as bias</button>
+      <div class="muted small">Add the job to the log below. A bias is set from the average of several jobs, not one.</div></div>
     </div>`);
   }
+  ckCurrent = job;
+  const key = JSON.stringify(job);
+  const added = key === ckAddedKey;
+  const j = settings.job;
+  const defaultLabel = j?.ticketNo
+    ? `Ticket ${j.ticketNo}${j.fieldName ? ` · ${j.fieldName}` : ''}`
+    : entries.map((e) => e.field.name).join(' + ');
+  const prevLabel = (document.getElementById('ckLabel') as HTMLInputElement | null)?.value;
+  parts.push(`<div class="ck-add">
+    <label class="field"><span>Job name</span><input id="ckLabel" type="text" value="${esc(prevLabel || defaultLabel)}" placeholder="e.g. Barrett, 10/15" /></label>
+    <button class="btn primary" type="button" id="ckAddBtn" ${added ? 'disabled' : ''}>${added ? '✓ Added to log' : `Add to ${esc(m.name)} log`}</button>
+  </div>`);
   out.innerHTML = parts.join('');
 }
 
+function machineCalibrations(m: MachineRecord): CalibrationRecord[] {
+  return m.calibrations ?? [];
+}
+
+/** The log for the active machine: averages, apply buttons, jobs, start over. */
+function renderCalLog() {
+  const m = activeMachine();
+  const box = $('calLog');
+  $('calMachineName').textContent = `· ${m.name}`;
+  const logs = machineCalibrations(m);
+  const curTrack = m.trackingPct !== undefined ? 100 - m.trackingPct : 0;
+  const curBias = m.biasPct ?? 0;
+  const nowLine = `<p class="muted small">This machine now: average rate decrease ${fmt(curTrack, 1)}% · bias ${fmtPct(curBias / 100)}.</p>`;
+  if (!logs.length) {
+    box.innerHTML = `<p class="muted small">No jobs logged yet. Check a finished job above and add it to the log. The average of several jobs sets this machine's rate decrease and bias.</p>${nowLine}${
+      curTrack || curBias ? '<button class="btn danger-text" type="button" data-cal="reset">Start over</button>' : ''
+    }`;
+    return;
+  }
+  const avg = averageCalibration(logs);
+  const parts: string[] = [];
+  if (!avg) {
+    parts.push('<p class="muted small">Every job is left out. Tap one to count it again.</p>');
+  } else {
+    parts.push('<div class="cal-sum">');
+    parts.push(`<p class="cal-n"><strong>Average of ${avg.n} job${avg.n === 1 ? '' : 's'}</strong> <span class="muted small">bigger loads count for more</span></p>`);
+    if (avg.tracking !== undefined) {
+      const dec = (1 - avg.tracking) * 100;
+      const same = Math.abs(dec - curTrack) <= 0.051;
+      parts.push(`<div class="ck-row">
+        <div><strong>Average rate decrease ${fmt(dec, 1)}%</strong>
+        <div class="muted small">From ${avg.trackingN} job${avg.trackingN === 1 ? '' : 's'} with the monitor's average rate.</div></div>
+        <button class="btn" type="button" data-cal="tracking" data-v="${(avg.tracking * 100).toFixed(1)}" ${same ? 'disabled' : ''}>${same ? '✓ In use' : 'Use'}</button>
+      </div>`);
+    }
+    const g = avg.gap * 100;
+    const sd = avg.gapSd * 100;
+    let verdict: string;
+    if (avg.n < 3) verdict = `Add ${3 - avg.n} more job${3 - avg.n === 1 ? '' : 's'} before trusting this as a bias.`;
+    else if (sd > 2) verdict = `The jobs disagree (±${fmt(sd, 1)}%). That's usually density changing from blend to blend, not the machine. Measure density before setting a bias.`;
+    else verdict = `Consistent across ${avg.n} jobs (±${fmt(sd, 1)}%), so it's most likely the machine.`;
+    const sameBias = Math.abs(g - curBias) <= 0.051;
+    parts.push(`<div class="ck-row">
+      <div><strong>Puts out ${fmt(Math.abs(g), 1)}% ${g >= 0 ? 'more' : 'less'} than the monitor</strong>
+      <div class="muted small">${verdict}</div></div>
+      <button class="btn" type="button" data-cal="bias" data-v="${g.toFixed(1)}" ${sameBias ? 'disabled' : ''}>${sameBias ? '✓ In use' : 'Use as bias'}</button>
+    </div>`);
+    parts.push('</div>');
+  }
+  parts.push(nowLine);
+  const sorted = [...logs].sort((a, b) => b.date - a.date);
+  parts.push(
+    `<ul class="cal-list">${sorted
+      .map((c) => {
+        const gap = avg?.gaps[c.id];
+        const odd = avg?.outliers.includes(c.id);
+        const bits = [
+          c.achievedRate ? `rate decrease ${fmt((1 - c.achievedRate / c.requestedRate) * 100, 1)}%` : '',
+          gap !== undefined ? `out vs monitor ${fmtPct(gap)}` : '',
+          `${fmt(c.appliedAc, 1)} ac · ${fmtQty(c.used, settings.product.unit)}`,
+        ].filter(Boolean);
+        return `<li class="${c.excluded ? 'excluded' : ''}">
+          <div class="cal-main">
+            <strong>${esc(c.label || 'Job')}</strong>
+            <span class="muted small">${new Date(c.date).toLocaleDateString()} · ${esc(bits.join(' · '))}</span>
+            ${odd && !c.excluded ? '<span class="cal-odd">⚠ Doesn\'t fit the other jobs. Wrong density or a typo? Consider leaving it out.</span>' : ''}
+          </div>
+          <button class="btn small-btn" type="button" data-cal="toggle" data-id="${c.id}" aria-pressed="${!c.excluded}">${c.excluded ? 'Left out' : 'Counted'}</button>
+          <button class="icon-btn cal-del" type="button" data-cal="del" data-id="${c.id}" aria-label="Delete ${esc(c.label)}">🗑</button>
+        </li>`;
+      })
+      .join('')}</ul>`,
+  );
+  parts.push('<button class="btn danger-text" type="button" data-cal="reset">Start over</button>');
+  box.innerHTML = parts.join('');
+}
+
+$('calLog').addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLElement>('[data-cal]');
+  if (!b) return;
+  const m = activeMachine();
+  const logs = machineCalibrations(m);
+  const action = b.dataset.cal;
+  if (action === 'tracking') {
+    m.trackingPct = parseFloat(b.dataset.v!);
+    toast(`${m.name}: average rate decrease set to ${fmt(100 - m.trackingPct, 1)}%`);
+  } else if (action === 'bias') {
+    m.biasPct = parseFloat(b.dataset.v!);
+    toast(`${m.name}: bias set to ${fmt(Math.abs(m.biasPct), 1)}% ${m.biasPct > 0 ? 'more' : 'less'}`);
+  } else if (action === 'toggle') {
+    const c = logs.find((x) => x.id === b.dataset.id);
+    if (c) c.excluded = !c.excluded;
+  } else if (action === 'del') {
+    const c = logs.find((x) => x.id === b.dataset.id);
+    if (!c || !confirm(`Delete "${c.label || 'this job'}" from the log?`)) return;
+    m.calibrations = logs.filter((x) => x !== c);
+  } else if (action === 'reset') {
+    const n = logs.length;
+    if (
+      !confirm(
+        `Start ${m.name} over from a clean slate?\n\n${n ? `This deletes all ${n} logged job${n === 1 ? '' : 's'} and ` : 'This '}resets its average rate decrease and bias to 0.`,
+      )
+    )
+      return;
+    m.calibrations = [];
+    m.trackingPct = undefined;
+    m.biasPct = undefined;
+    ckAddedKey = '';
+    toast(`${m.name} reset. Add finished jobs to calibrate it again.`);
+  }
+  store.saveMachines(machines);
+  syncMachineUi();
+  renderJobCheck();
+  renderCalLog();
+  renderResults();
+});
+
 $('ckResult').addEventListener('click', (e) => {
-  const b = (e.target as HTMLElement).closest<HTMLElement>('[data-ck]');
+  const t = e.target as HTMLElement;
+  const m = activeMachine();
+  if (t.closest('#ckAddBtn') && ckCurrent) {
+    const label = ($('ckLabel') as HTMLInputElement).value.trim() || new Date().toLocaleDateString();
+    m.calibrations = [...machineCalibrations(m), { ...ckCurrent, id: uid(), date: Date.now(), label }];
+    store.saveMachines(machines);
+    ckAddedKey = JSON.stringify(ckCurrent);
+    const n = m.calibrations.length;
+    toast(`Added to ${m.name} log (${n} job${n === 1 ? '' : 's'})`);
+    renderJobCheck();
+    renderCalLog();
+    return;
+  }
+  const b = t.closest<HTMLElement>('[data-ck]');
   if (!b) return;
   const v = parseFloat(b.dataset.v!);
-  const m = activeMachine();
-  if (b.dataset.ck === 'tracking') {
-    m.trackingPct = v;
-    store.saveMachines(machines);
-    toast(`${m.name}: average rate decrease set to ${fmt(100 - v, 1)}%`);
-  } else if (b.dataset.ck === 'bias') {
-    m.biasPct = v;
-    store.saveMachines(machines);
-    toast(`${m.name}: bias set to ${fmt(Math.abs(v), 1)}% ${v > 0 ? 'more' : 'less'}`);
-  } else if (b.dataset.ck === 'density') {
+  if (b.dataset.ck === 'density') {
     settings.product.density = v;
     settings.product.adjustBy = 'density';
     saveSettings();
@@ -977,6 +1115,7 @@ function showMachineTab(tab: 'machine' | 'calibrate') {
   if (tab === 'calibrate') {
     prefillJobCheck();
     renderJobCheck();
+    renderCalLog();
   }
 }
 

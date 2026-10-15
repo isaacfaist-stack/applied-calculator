@@ -198,3 +198,76 @@ export function checkJob(i: JobCheckInputs): JobCheckResult | null {
       i.programmedDensity && i.programmedDensity > 0 ? (i.programmedDensity * i.used) / monitorProduct : undefined,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Averaging several finished jobs. One job mixes machine behavior with that
+// blend's density error and whatever happened that day; over several jobs the
+// machine's consistent part shows through.
+
+export interface CalibrationJob {
+  id: string;
+  requestedRate: number;
+  achievedRate?: number;
+  appliedAc: number;
+  used: number;
+  trueDensity?: number;
+  programmedDensity?: number;
+  /** Left out of the average. */
+  excluded?: boolean;
+}
+
+export interface CalibrationAverage {
+  /** Jobs counted. */
+  n: number;
+  /** Achieved ÷ requested over all counted jobs with a monitor average (acre-weighted). */
+  tracking?: number;
+  trackingN: number;
+  /** Product out ÷ expected − 1 over all counted jobs (weighted by product). */
+  gap: number;
+  /** Spread of the per-job gaps (weighted standard deviation). */
+  gapSd: number;
+  /** Per-job gaps by id. */
+  gaps: Record<string, number>;
+  /** Jobs that don't fit the rest (only flagged with 3 or more jobs). */
+  outliers: string[];
+}
+
+function weightedGap(jobs: { used: number; expected: number }[]): number {
+  const used = jobs.reduce((s, j) => s + j.used, 0);
+  const expected = jobs.reduce((s, j) => s + j.expected, 0);
+  return expected > 0 ? used / expected - 1 : 0;
+}
+
+export function averageCalibration(all: CalibrationJob[]): CalibrationAverage | null {
+  const rows = all
+    .map((j) => ({ j, r: checkJob(j) }))
+    .filter((x): x is { j: CalibrationJob; r: JobCheckResult } => !!x.r);
+  const gaps: Record<string, number> = {};
+  for (const { j, r } of rows) gaps[j.id] = r.gap;
+  const counted = rows.filter((x) => !x.j.excluded);
+  if (!counted.length) return null;
+
+  const tracked = counted.filter((x) => x.j.achievedRate && x.j.achievedRate > 0);
+  const tracking = tracked.length
+    ? tracked.reduce((s, x) => s + x.j.achievedRate! * x.j.appliedAc, 0) /
+      tracked.reduce((s, x) => s + x.j.requestedRate * x.j.appliedAc, 0)
+    : undefined;
+
+  const parts = counted.map((x) => ({ id: x.j.id, used: x.j.used, expected: x.r.expectedOut, gap: x.r.gap }));
+  const gap = weightedGap(parts);
+  const wSum = parts.reduce((s, p) => s + p.used, 0);
+  const gapSd = Math.sqrt(parts.reduce((s, p) => s + p.used * (p.gap - gap) ** 2, 0) / wSum);
+
+  // A job is an outlier when it sits well away from the average of the others.
+  const outliers: string[] = [];
+  if (parts.length >= 3) {
+    for (const p of parts) {
+      const others = parts.filter((o) => o !== p);
+      const og = weightedGap(others);
+      const ow = others.reduce((s, o) => s + o.used, 0);
+      const osd = Math.sqrt(others.reduce((s, o) => s + o.used * (o.gap - og) ** 2, 0) / ow);
+      if (Math.abs(p.gap - og) > Math.max(0.03, 2.5 * osd)) outliers.push(p.id);
+    }
+  }
+  return { n: counted.length, tracking, trackingN: tracked.length, gap, gapSd, gaps, outliers };
+}

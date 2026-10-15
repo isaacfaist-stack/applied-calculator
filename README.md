@@ -38,8 +38,15 @@ opened with 🚜 in the top bar.
 
 **Check a finished job:** enter the load, what's left, and the monitor's
 applied acres and average rate. The app separates rate tracking from what
-remains, shows the true product density or the machine bias that would explain
-the remainder, and saves the one you pick.
+remains, and shows the true product density or the machine bias that would
+explain the remainder. Use the density for the rest of that blend.
+
+**Calibration log:** add each checked job to the machine's log. The machine's
+average rate decrease and bias come from the average of the logged jobs
+(bigger loads count for more), with a note on how consistent they are. A job
+that doesn't fit the others is flagged and can be left out or deleted.
+**Start over** clears the log and resets the machine to no corrections, for
+recalibrating from a clean slate after a repair or a new controller.
 
 ## Why applied acres differ from surface acres
 

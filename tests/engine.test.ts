@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { type Poly, SQ_M_PER_ACRE, polysArea } from '../src/engine/geometry';
 import { optimizeHeading, plan, prepareField } from '../src/engine/plan';
 import { computeCoverage } from '../src/engine/coverage';
-import { actualRateAt, adviseMidField, adviseRate, checkJob, densityFor, splitChange } from '../src/engine/rate';
+import { actualRateAt, adviseMidField, adviseRate, averageCalibration, checkJob, densityFor, splitChange } from '../src/engine/rate';
 
 const rect = (w: number, h: number): Poly[] => [
   { outer: [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }], holes: [] },
@@ -270,6 +270,42 @@ describe('rate', () => {
     expect(withMachine.map((p) => p.key)).toEqual(['given', 'overlap', 'tracking', 'bias']);
     const b = adviseRate({ ...i, tracking: 0.96, bias: 0.03 })!;
     expect(withMachine.reduce((m, p) => m * p.factor, 1)).toBeCloseTo(b.rateToEmpty! / 450, 10);
+  });
+
+  it('calibration: averages several jobs and flags the odd one out', () => {
+    // Machine really puts out 2% more and the belt averages 96% of the request.
+    const job = (id: string, ac: number, gapPct: number) => {
+      const requestedRate = 250;
+      const achievedRate = 240;
+      return { id, requestedRate, achievedRate, appliedAc: ac, used: achievedRate * ac * (1 + gapPct / 100) };
+    };
+    const jobs = [job('a', 70, 2.5), job('b', 40, 1.5), job('c', 120, 2.0), job('d', 60, 1.8)];
+    const avg = averageCalibration(jobs)!;
+    expect(avg.n).toBe(4);
+    expect(avg.tracking).toBeCloseTo(0.96, 6);
+    expect(avg.gap).toBeCloseTo(0.02, 2);
+    expect(avg.gapSd).toBeLessThan(0.005);
+    expect(avg.outliers).toEqual([]);
+
+    // A load with a badly wrong ticket density stands out…
+    const withBad = [...jobs, job('e', 65, 9)];
+    const bad = averageCalibration(withBad)!;
+    expect(bad.outliers).toEqual(['e']);
+    expect(bad.gap).toBeGreaterThan(0.03);
+    // …and excluding it brings the average back.
+    const fixed = averageCalibration(withBad.map((j) => (j.id === 'e' ? { ...j, excluded: true } : j)))!;
+    expect(fixed.n).toBe(4);
+    expect(fixed.gap).toBeCloseTo(avg.gap, 10);
+    expect(fixed.gaps.e).toBeCloseTo(0.09, 6);
+  });
+
+  it('calibration: bigger loads count for more', () => {
+    const avg = averageCalibration([
+      { id: 'small', requestedRate: 200, appliedAc: 10, used: 200 * 10 * 1.1 },
+      { id: 'big', requestedRate: 200, appliedAc: 90, used: 200 * 90 * 1.0 },
+    ])!;
+    expect(avg.gap).toBeCloseTo(200 / 20000, 6); // 20,200 lb out of 20,000 expected
+    expect(avg.tracking).toBeUndefined();
   });
 
   it('acre constant', () => {

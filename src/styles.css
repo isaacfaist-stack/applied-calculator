@@ -1627,3 +1627,82 @@ dialog.setup {
   background: var(--surface-2);
   font-size: 0.88rem;
 }
+
+/* Calibration log -------------------------------------------------------------- */
+
+.ck-add {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ck-add .field {
+  flex: 1 1 200px;
+  margin: 0;
+}
+
+.cal-head {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+#calLog {
+  display: grid;
+  gap: 12px;
+}
+
+#calLog > p {
+  margin: 0;
+}
+
+.cal-sum {
+  display: grid;
+  gap: 10px;
+}
+
+.cal-n {
+  margin: 0;
+}
+
+.cal-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border-top: 1px solid var(--line);
+}
+
+.cal-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.cal-list li.excluded .cal-main {
+  opacity: 0.5;
+}
+
+.cal-list .small-btn {
+  margin-left: 0;
+}
+
+.cal-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cal-odd {
+  color: var(--warn);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.cal-del {
+  color: var(--danger);
+}

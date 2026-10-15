@@ -3,6 +3,7 @@
 
 import type { BoundaryGeometry } from './io/import';
 import type { CornerStyle, ShutoffMode } from './engine/plan';
+import type { CalibrationJob } from './engine/rate';
 
 export interface FieldRecord {
   id: string;
@@ -49,6 +50,13 @@ export interface MachineRecord {
   biasPct?: number;
   /** Average achieved rate as % of requested (96 = runs 4% under). */
   trackingPct?: number;
+  /** Finished jobs checked on this machine; their average sets tracking and bias. */
+  calibrations?: CalibrationRecord[];
+}
+
+export interface CalibrationRecord extends CalibrationJob {
+  date: number;
+  label: string;
 }
 
 export interface ProductSettings {
