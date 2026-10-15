@@ -66,6 +66,32 @@ export function adviseRate(i: RateInputs): RateAdvice | null {
   return advice;
 }
 
+/**
+ * Why the controller setting differs from the target: the output multiplier
+ * (setting ÷ target rate) split into factors that multiply back to it.
+ *  - given:    product given ÷ product needed for the surface acres
+ *              (ticket acres vs. boundary acres); only with a load entered
+ *  - overlap:  surface ÷ applied acres
+ *  - tracking: 1 ÷ achieved-rate fraction
+ *  - bias:     1 ÷ (1 + bias)
+ * A factor below 1 means put out less; for a density setting the change is
+ * 1 ÷ factor − 1 instead of factor − 1.
+ */
+export interface ChangePart {
+  key: 'given' | 'overlap' | 'tracking' | 'bias';
+  factor: number;
+}
+
+export function splitChange(i: RateInputs): ChangePart[] {
+  if (!(i.surfaceAc > 0) || !(i.appliedAc > 0) || !(i.targetRate > 0)) return [];
+  const parts: ChangePart[] = [];
+  if (i.loaded !== undefined && i.loaded > 0) parts.push({ key: 'given', factor: i.loaded / (i.targetRate * i.surfaceAc) });
+  parts.push({ key: 'overlap', factor: i.surfaceAc / i.appliedAc });
+  if (i.tracking !== undefined && i.tracking > 0 && i.tracking !== 1) parts.push({ key: 'tracking', factor: 1 / i.tracking });
+  if (i.bias) parts.push({ key: 'bias', factor: 1 / (1 + i.bias) });
+  return parts;
+}
+
 // ---------------------------------------------------------------------------
 // Density adjustment. A dry rate controller meters by volume and converts to
 // pounds with the density programmed into it:

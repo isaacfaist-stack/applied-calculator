@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { type Poly, SQ_M_PER_ACRE, polysArea } from '../src/engine/geometry';
 import { optimizeHeading, plan, prepareField } from '../src/engine/plan';
 import { computeCoverage } from '../src/engine/coverage';
-import { actualRateAt, adviseMidField, adviseRate, checkJob, densityFor } from '../src/engine/rate';
+import { actualRateAt, adviseMidField, adviseRate, checkJob, densityFor, splitChange } from '../src/engine/rate';
 
 const rect = (w: number, h: number): Poly[] => [
   { outer: [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }], holes: [] },
@@ -250,6 +250,26 @@ describe('rate', () => {
     expect(r.tracking).toBeCloseTo(0.952, 6);
     expect(Math.abs(r.gap)).toBeLessThan(Math.abs(blind.gap));
     expect(r.impliedDensity).toBeCloseTo((70 * used) / (238 * 69.5), 6);
+  });
+
+  it('splits the change into ticket acres vs overlap (the Barrett ticket)', () => {
+    // 27,900 lb for 62 ac at 450, boundary 64.61 ac, plan 65.71 applied ac.
+    const i = { surfaceAc: 64.61, appliedAc: 65.71, targetRate: 450, loaded: 27900, density: 65 };
+    const parts = splitChange(i);
+    expect(parts.map((p) => p.key)).toEqual(['given', 'overlap']);
+    const a = adviseRate(i)!;
+    // The parts multiply back to the controller setting.
+    expect(parts.reduce((m, p) => m * p.factor, 1)).toBeCloseTo(a.rateToEmpty! / 450, 10);
+    // As density changes: +4.2% from the ticket, +1.7% from overlap, +6.0% total.
+    const dens = (f: number) => 1 / f - 1;
+    expect(dens(parts[0].factor)).toBeCloseTo(0.042, 3);
+    expect(dens(parts[1].factor)).toBeCloseTo(0.017, 3);
+    expect(densityFor(65, 450, a.rateToEmpty!) / 65 - 1).toBeCloseTo(0.0597, 3);
+    // Machine factors join in when set.
+    const withMachine = splitChange({ ...i, tracking: 0.96, bias: 0.03 });
+    expect(withMachine.map((p) => p.key)).toEqual(['given', 'overlap', 'tracking', 'bias']);
+    const b = adviseRate({ ...i, tracking: 0.96, bias: 0.03 })!;
+    expect(withMachine.reduce((m, p) => m * p.factor, 1)).toBeCloseTo(b.rateToEmpty! / 450, 10);
   });
 
   it('acre constant', () => {

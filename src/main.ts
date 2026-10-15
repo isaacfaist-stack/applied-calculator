@@ -7,7 +7,7 @@ import { M_PER_FT, SQ_M_PER_ACRE, ringArea } from './engine/geometry';
 import { simplifyRing } from './engine/plan';
 import { makeProjection } from './engine/projection';
 import type { CornerStyle, ShutoffMode } from './engine/plan';
-import { adviseRate, checkJob, densityFor } from './engine/rate';
+import { type ChangePart, adviseRate, checkJob, densityFor, splitChange } from './engine/rate';
 import { type ExclusionKind, type LocalField, distanceMiles, geometryCenter, geometryRings, pointInGeometry, toLocalField } from './fieldModel';
 import { fetchRemoteBoundary, listRemoteFields } from './integrations/boundaryServer';
 import { type BoundaryGeometry, importFiles } from './io/import';
@@ -578,6 +578,61 @@ function updateSummaries() {
   });
 }
 
+/**
+ * "Why" under the answer: how much of the change comes from the ticket's
+ * product vs. the boundary, from overlap, and from machine corrections.
+ * Each part is shown as its own change to the setting; they multiply to the total.
+ */
+function renderWhy(parts: ChangePart[] | null, ctx: { byDensity: boolean; surfaceAc: number; appliedAc: number; rate: number; loaded?: number; total: number }) {
+  const box = $('answerWhy');
+  const shown = parts?.filter((p) => Math.abs(p.factor - 1) >= 0.0005) ?? [];
+  box.hidden = !shown.length;
+  if (!shown.length) return;
+  const asChange = (f: number) => (ctx.byDensity ? 1 / f - 1 : f - 1);
+  const short: Record<ChangePart['key'], string> = { given: 'ticket acres', overlap: 'overlap', tracking: 'rate decrease', bias: 'bias' };
+  const j = settings.job;
+  const givenAc = ctx.loaded && ctx.rate > 0 ? ctx.loaded / ctx.rate : 0;
+  const tracking = machineTracking();
+  const bias = machineBias();
+  const detail = (p: ChangePart): [string, string] => {
+    switch (p.key) {
+      case 'given': {
+        const fromTicket = j?.acres && Math.abs(j.acres / givenAc - 1) < 0.01;
+        return [
+          fromTicket ? 'Ticket acres vs. boundary' : 'Product given vs. boundary',
+          `${fmt(givenAc, 2)} ac ${fromTicket ? 'on the ticket' : "worth given"} · ${fmt(ctx.surfaceAc, 2)} ac boundary`,
+        ];
+      }
+      case 'overlap':
+        return ['Overlap', `${fmt(ctx.appliedAc, 2)} applied ac on ${fmt(ctx.surfaceAc, 2)} ac`];
+      case 'tracking':
+        return ['Average rate decrease', `belt averages ${fmt(Math.abs(1 - tracking) * 100, 1)}% ${tracking < 1 ? 'under' : 'over'}`];
+      case 'bias':
+        return ['Machine bias', `puts out ${fmt(Math.abs(bias) * 100, 1)}% ${bias > 0 ? 'more' : 'less'} than it shows`];
+    }
+  };
+  $('answerWhySum').textContent = shown.map((p) => `${fmtPct(asChange(p.factor))} ${short[p.key]}`).join(' · ');
+  $('answerWhyList').innerHTML =
+    shown
+      .map((p) => {
+        const [name, sub] = detail(p);
+        return `<li><span><b>${name}</b><small>${esc(sub)}</small></span><span class="why-pct">${fmtPct(asChange(p.factor))}</span></li>`;
+      })
+      .join('') + (shown.length > 1 ? `<li class="why-total"><span><b>Together</b></span><span class="why-pct">${fmtPct(ctx.total)}</span></li>` : '');
+  // Point at the cause when the ticket, not the field plan, drives the change.
+  const given = shown.find((p) => p.key === 'given');
+  const overlap = shown.find((p) => p.key === 'overlap');
+  const hint = $('answerWhyHint');
+  const g = given ? given.factor - 1 : 0;
+  if (given && Math.abs(g) >= 0.02 && Math.abs(g) > Math.abs((overlap?.factor ?? 1) - 1)) {
+    hint.textContent =
+      g < 0
+        ? 'Most of this comes from the ticket being figured on fewer acres than the boundary, not from overlap. If the boundary takes in ground you don’t spread (grass edges, waterways, the yard), trim it or add exclusions; otherwise the ticket is short.'
+        : 'Most of this comes from more product than the boundary acres need, not from overlap. If the boundary is missing ground you will spread, fix it; otherwise there is extra to use up.';
+    hint.hidden = false;
+  } else hint.hidden = true;
+}
+
 function renderResults() {
   updateSummaries();
   const has = !!(result && entries.length);
@@ -635,7 +690,10 @@ function renderResults() {
     warn.hidden = false;
   };
   recommendedDensity = undefined;
+  const whyCtx = { byDensity, surfaceAc, appliedAc, rate, loaded, total: 0 };
+  const parts = splitChange({ surfaceAc, appliedAc, targetRate: rate, loaded, bias, tracking });
   const blank = (msg: string) => {
+    renderWhy(null, whyCtx);
     $('answerRate').textContent = '–';
     $('answerUnit').textContent = '';
     answerChange.textContent = msg;
@@ -665,6 +723,7 @@ function renderResults() {
             ? `${fmtPct(change)} — raise to use it up`
             : 'No change needed';
       $('answerSub').textContent = why;
+      renderWhy(parts, { ...whyCtx, total: change });
       checkChange(change);
     } else if (!(density && density > 0)) {
       blank('Enter the product density');
@@ -684,6 +743,7 @@ function renderResults() {
             ? `${fmtPct(dChange)} — lower density to use it up`
             : 'No change needed';
       $('answerSub').textContent = `Leave Rate at ${fmt(rate, rate >= 100 ? 0 : 1)} ${unit}/ac. ${why}`;
+      renderWhy(parts, { ...whyCtx, total: dChange });
       checkChange(dChange);
     }
 
@@ -713,13 +773,6 @@ function renderResults() {
     }
     if (byDensity && recommendedDensity) {
       rows.push(['Same as a rate change of', fmtPct(useLoad ? a.rateToEmptyChangePct! : a.rateChangePct)]);
-    }
-    if (givenAcres !== undefined && rate > 0) {
-      const extra = givenAcres - surfaceAc;
-      rows.push([
-        `Given ${fmt(givenAcres, 2)} ac worth for ${fmt(surfaceAc, 2)} surface ac`,
-        `${extra >= 0 ? '+' : '−'}${fmt(Math.abs(extra), 2)} ac (${fmtPct(givenAcres / surfaceAc - 1)})`,
-      ]);
     }
     if (a.loadBalance !== undefined) {
       const bal = a.loadBalance;
