@@ -113,6 +113,7 @@
               </div>
             </label>
             <p class="muted small">From a density cup or the plant's ticket. The app tells you what density to program.</p>
+            <div class="density-learn" id="densityLearn" hidden></div>
           </div>
           <dl class="kv" id="productKv"></dl>
         </details>
@@ -300,6 +301,7 @@
               <input id="trackingInput" type="number" inputmode="decimal" min="-20" max="50" step="any" placeholder="0" />
               <span class="suffix">% under</span>
             </div>
+            <p class="track-model" id="trackModelNote" hidden></p>
             <p class="muted small">
               When the belt can't keep up with speed changes, the monitor's job average comes in under the request. Or work
               it out from a job summary:
@@ -386,11 +388,20 @@
                 <span class="suffix">lb/ft³</span>
               </div>
             </label>
+            <label class="check-row">
+              <input type="checkbox" id="ckCup" />
+              <span>Measured with a density cup <span class="muted small">(not just the ticket)</span></span>
+            </label>
           </div>
           <div id="ckResult"></div>
 
+          <div id="calLogWrap">
           <h3 class="cal-head">Calibration log <span class="muted" id="calMachineName"></span> <button type="button" class="info" data-help="callog" aria-label="What is the calibration log?">i</button></h3>
           <div id="calLog"></div>
+          </div>
+
+          <h3 class="cal-head">Product densities <button type="button" class="info" data-help="densitylearn" aria-label="How are product densities learned?">i</button></h3>
+          <div id="densityLib"></div>
         </section>
     </dialog>
 
@@ -609,11 +620,12 @@
             </div>
           </label>
           <label class="field" id="jobDensityField">
-            <span>Density on ticket <button type="button" class="info" data-help="density" aria-label="What is product density?">i</button></span>
+            <span><span id="jobDensityLabel">Density on ticket</span> <button type="button" class="info" data-help="density" aria-label="What is product density?">i</button></span>
             <div class="input-unit">
               <input id="jobDensity" type="number" inputmode="decimal" min="1" step="any" />
               <span class="suffix">lb/ft³</span>
             </div>
+            <span class="muted small" id="jobDensityHint" hidden></span>
           </label>
           <label class="field">
             <span>Machine</span>

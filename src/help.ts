@@ -139,12 +139,20 @@ export const HELP: Record<string, HelpEntry> = {
   },
   decrease: {
     title: 'Average rate decrease',
-    body: `<p>Belts can't always keep up when ground speed changes, so the job average on the monitor comes in under the rate you asked for. Requested 250, job average 240: enter <b>4</b>.</p>`,
+    body: `<p>Belts can't always keep up when ground speed changes, so the job average on the monitor comes in under the rate you asked for. Requested 250, job average 240: enter <b>4</b>.</p>
+      <p>The loss happens where you slow down and speed back up: pass starts, turns and corners. Once your calibration log has jobs from both open and cut-up fields, the app learns how much more you lose per speed change and uses the right amount for each field.</p>`,
+  },
+  densitylearn: {
+    title: 'Learned product densities',
+    body: `<p>A blend's density follows from its ingredients: their volumes add up. So every time you cup-check a load, the app learns a little more about what your potash, triple super, MAP, urea and so on really weigh.</p>
+      <p>After a few readings it predicts a new blend's density from the ticket's ingredients, often closer than the plant's calculated number. It only offers that once the blend is mostly products you've cup-checked.</p>
+      <p>Knowing density also separates it from machine bias: the calibration log takes the bias from cup-checked loads when it has two or more.</p>`,
   },
   callog: {
     title: 'Calibration log',
     body: `<p>Every finished job you add is kept for this machine. The app averages them, with bigger loads counting for more, to set the machine's <b>average rate decrease</b> and <b>bias</b>.</p>
       <p>One job mixes the machine with that blend's density and whatever happened that day. Over several jobs, what stays the same is the machine. If the jobs disagree a lot, the difference is usually density changing from blend to blend, so measure density before trusting a bias.</p>
+      <p>Recent jobs count for more than old ones (a job's weight halves each year), so the numbers follow belt wear. The ± is how sure the average is; it shrinks as you add jobs, fastest with cup-checked loads.</p>
       <p>A job that doesn't fit the others is flagged; tap <b>Counted</b> to leave it out. <b>Start over</b> clears the log and resets the machine to no corrections, for after a repair, new belt or new controller.</p>`,
   },
   calibrate: {

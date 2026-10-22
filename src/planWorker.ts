@@ -31,6 +31,7 @@ export interface PlanResponse {
   interiorM2: number;
   passCount: number;
   onDistanceM: number;
+  speedChanges: number;
   headlandPaths: Ring[];
   passLines: [Pt, Pt][];
   coverage: {
@@ -85,6 +86,7 @@ self.onmessage = (e: MessageEvent<PlanRequest>) => {
       interiorM2: res.interiorM2,
       passCount: res.passCount,
       onDistanceM: res.onDistanceM,
+      speedChanges: res.speedChanges,
       headlandPaths: res.headlandPaths,
       passLines: res.passLines,
       coverage: {

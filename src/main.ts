@@ -7,7 +7,20 @@ import { M_PER_FT, SQ_M_PER_ACRE, ringArea } from './engine/geometry';
 import { simplifyRing } from './engine/plan';
 import { makeProjection } from './engine/projection';
 import type { CornerStyle, ShutoffMode } from './engine/plan';
-import { type ChangePart, adviseRate, averageCalibration, checkJob, densityFor, splitChange } from './engine/rate';
+import {
+  type ChangePart,
+  type DensityReading,
+  type Ingredient,
+  adviseRate,
+  averageCalibration,
+  checkJob,
+  densityFor,
+  ingredientKey,
+  learnDensities,
+  predictDensity,
+  splitChange,
+  trackingFor,
+} from './engine/rate';
 import { type ExclusionKind, type LocalField, distanceMiles, geometryCenter, geometryRings, pointInGeometry, toLocalField } from './fieldModel';
 import { fetchRemoteBoundary, listRemoteFields } from './integrations/boundaryServer';
 import { type BoundaryGeometry, importFiles } from './io/import';
@@ -99,6 +112,7 @@ interface PlanTotals {
   passAppliedM2: number;
   passCount: number;
   onDistanceM: number;
+  speedChanges: number;
   coverage: { singleM2: number; overlapAreaM2: number; overlapExtraM2: number; skipM2: number; offFieldM2: number };
 }
 let result: PlanTotals | null = null;
@@ -112,6 +126,7 @@ function computeTotals(): PlanTotals | null {
     passAppliedM2: 0,
     passCount: 0,
     onDistanceM: 0,
+    speedChanges: 0,
     coverage: { singleM2: 0, overlapAreaM2: 0, overlapExtraM2: 0, skipM2: 0, offFieldM2: 0 },
   };
   for (const { result: r } of entries) {
@@ -121,6 +136,7 @@ function computeTotals(): PlanTotals | null {
     t.passAppliedM2 += r!.passAppliedM2;
     t.passCount += r!.passCount;
     t.onDistanceM += r!.onDistanceM;
+    t.speedChanges += r!.speedChanges;
     for (const k of Object.keys(t.coverage) as (keyof PlanTotals['coverage'])[]) t.coverage[k] += r!.coverage[k];
   }
   return t;
@@ -164,9 +180,32 @@ function densityMode(): boolean {
 }
 
 /** Active machine's achieved ÷ requested rate (0.96 = averages 4% under). */
+/** Speed changes per mile with product on, for the current plan. */
+function changesPerMile(): number | undefined {
+  return result && result.onDistanceM > 0 ? result.speedChanges / (result.onDistanceM / 1609.344) : undefined;
+}
+
+/** Achieved ÷ requested for this machine on the planned field(s). */
 function machineTracking(): number {
-  const t = activeMachine().trackingPct;
+  const m = activeMachine();
+  const cpm = changesPerMile();
+  if (m.trackingModel && cpm !== undefined) return trackingFor(m.trackingModel, cpm);
+  const t = m.trackingPct;
   return t && t > 0 ? t / 100 : 1;
+}
+
+let densityReadings: DensityReading[] = store.densityReadings();
+
+/** Learned density for a blend, when it's mostly products you've cup-checked. */
+function learnedDensity(ings: Ingredient[] | undefined) {
+  if (!ings?.length || !densityReadings.length) return null;
+  const p = predictDensity(learnDensities(densityReadings, ings), ings);
+  return p && p.coverage >= 0.9 ? p : null;
+}
+
+function addDensityReading(ings: Ingredient[], density: number, label?: string) {
+  densityReadings = [...densityReadings, { id: uid(), date: Date.now(), label, ingredients: ings, density }];
+  store.saveDensityReadings(densityReadings);
 }
 
 function saveSettings() {
@@ -605,8 +644,14 @@ function renderWhy(parts: ChangePart[] | null, ctx: { byDensity: boolean; surfac
       }
       case 'overlap':
         return ['Overlap', `${fmt(ctx.appliedAc, 2)} applied ac on ${fmt(ctx.surfaceAc, 2)} ac`];
-      case 'tracking':
-        return ['Average rate decrease', `belt averages ${fmt(Math.abs(1 - tracking) * 100, 1)}% ${tracking < 1 ? 'under' : 'over'}`];
+      case 'tracking': {
+        const cpm = changesPerMile();
+        const shaped = activeMachine().trackingModel && cpm !== undefined;
+        return [
+          'Average rate decrease',
+          `belt averages ${fmt(Math.abs(1 - tracking) * 100, 1)}% ${tracking < 1 ? 'under' : 'over'}${shaped ? ` here (${fmt(cpm!, 0)} speed changes a mile)` : ''}`,
+        ];
+      }
       case 'bias':
         return ['Machine bias', `puts out ${fmt(Math.abs(bias) * 100, 1)}% ${bias > 0 ? 'more' : 'less'} than it shows`];
     }
@@ -831,6 +876,7 @@ function renderResults() {
     .join('');
 
   syncAdjustUi();
+  renderDensityLearn();
 }
 
 // ---------------------------------------------------------------------------
@@ -881,13 +927,18 @@ function renderJobCheck() {
     return;
   }
   const used = loaded - left;
+  const trueDensity = num($('ckTrueDensity') as HTMLInputElement);
   const job = {
     requestedRate: requested,
     achievedRate: num($('ckAchieved') as HTMLInputElement),
     appliedAc: acres,
     used,
-    trueDensity: num($('ckTrueDensity') as HTMLInputElement),
+    trueDensity,
     programmedDensity: num($('ckProgDensity') as HTMLInputElement),
+    densityMeasured: !!trueDensity && ($('ckCup') as HTMLInputElement).checked,
+    // What the plan expected for this job, to learn from.
+    changesPerMile: changesPerMile(),
+    predictedAc: result ? result.appliedM2 / SQ_M_PER_ACRE : undefined,
   };
   const r = checkJob(job);
   if (!r) {
@@ -969,10 +1020,13 @@ function renderCalLog() {
   const logs = machineCalibrations(m);
   const curTrack = m.trackingPct !== undefined ? 100 - m.trackingPct : 0;
   const curBias = m.biasPct ?? 0;
-  const nowLine = `<p class="muted small">This machine now: average rate decrease ${fmt(curTrack, 1)}% · bias ${fmtPct(curBias / 100)}.</p>`;
+  const nowTrack = m.trackingModel
+    ? `rate decrease ${fmt(m.trackingModel.a * 100, 1)}% + ${fmt(m.trackingModel.k * 1000, 1)}% per 10 speed changes a mile`
+    : `average rate decrease ${fmt(curTrack, 1)}%`;
+  const nowLine = `<p class="muted small">This machine now: ${nowTrack} · bias ${fmtPct(curBias / 100)}.</p>`;
   if (!logs.length) {
     box.innerHTML = `<p class="muted small">No jobs logged yet. Check a finished job above and add it to the log. The average of several jobs sets this machine's rate decrease and bias.</p>${nowLine}${
-      curTrack || curBias ? '<button class="btn danger-text" type="button" data-cal="reset">Start over</button>' : ''
+      curTrack || curBias || m.trackingModel ? '<button class="btn danger-text" type="button" data-cal="reset">Start over</button>' : ''
     }`;
     return;
   }
@@ -982,28 +1036,61 @@ function renderCalLog() {
     parts.push('<p class="muted small">Every job is left out. Tap one to count it again.</p>');
   } else {
     parts.push('<div class="cal-sum">');
-    parts.push(`<p class="cal-n"><strong>Average of ${avg.n} job${avg.n === 1 ? '' : 's'}</strong> <span class="muted small">bigger loads count for more</span></p>`);
-    if (avg.tracking !== undefined) {
+    parts.push(`<p class="cal-n"><strong>Average of ${avg.n} job${avg.n === 1 ? '' : 's'}</strong> <span class="muted small">bigger loads and recent jobs count for more</span></p>`);
+    if (avg.trackingModel) {
+      const tm = avg.trackingModel;
+      const cpm = changesPerMile();
+      const same = !!m.trackingModel && Math.abs(m.trackingModel.a - tm.a) < 1e-4 && Math.abs(m.trackingModel.k - tm.k) < 1e-6;
+      parts.push(`<div class="ck-row">
+        <div><strong>Rate decrease ${fmt(tm.a * 100, 1)}% + ${fmt(tm.k * 1000, 1)}% per 10 speed changes a mile</strong>
+        <div class="muted small">Your jobs show the belt losing more on cut-up fields.${cpm !== undefined ? ` This field (${fmt(cpm, 0)} a mile): ${fmt((1 - trackingFor(tm, cpm)) * 100, 1)}%.` : ''} Flat average would be ${fmt((1 - avg.tracking!) * 100, 1)}%.</div></div>
+        <button class="btn" type="button" data-cal="trackmodel" ${same ? 'disabled' : ''}>${same ? '✓ In use' : 'Use'}</button>
+      </div>`);
+    } else if (avg.tracking !== undefined) {
       const dec = (1 - avg.tracking) * 100;
-      const same = Math.abs(dec - curTrack) <= 0.051;
+      const same = !m.trackingModel && Math.abs(dec - curTrack) <= 0.051;
+      const why =
+        avg.trackingN >= 3
+          ? 'Same on open and cut-up fields so far.'
+          : 'With 3+ jobs from different kinds of fields, the app checks whether cut-up fields lose more.';
       parts.push(`<div class="ck-row">
         <div><strong>Average rate decrease ${fmt(dec, 1)}%</strong>
-        <div class="muted small">From ${avg.trackingN} job${avg.trackingN === 1 ? '' : 's'} with the monitor's average rate.</div></div>
+        <div class="muted small">From ${avg.trackingN} job${avg.trackingN === 1 ? '' : 's'} with the monitor's average rate. ${why}</div></div>
         <button class="btn" type="button" data-cal="tracking" data-v="${(avg.tracking * 100).toFixed(1)}" ${same ? 'disabled' : ''}>${same ? '✓ In use' : 'Use'}</button>
       </div>`);
     }
     const g = avg.gap * 100;
     const sd = avg.gapSd * 100;
+    const ci = 2 * avg.gapSe * 100;
     let verdict: string;
-    if (avg.n < 3) verdict = `Add ${3 - avg.n} more job${3 - avg.n === 1 ? '' : 's'} before trusting this as a bias.`;
-    else if (sd > 2) verdict = `The jobs disagree (±${fmt(sd, 1)}%). That's usually density changing from blend to blend, not the machine. Measure density before setting a bias.`;
-    else verdict = `Consistent across ${avg.n} jobs (±${fmt(sd, 1)}%), so it's most likely the machine.`;
+    if (avg.gapFromMeasured) verdict = `From ${avg.gapN} loads with cup-checked density, so density error is out of it.`;
+    else if (avg.gapN < 3) verdict = `Add ${3 - avg.gapN} more job${3 - avg.gapN === 1 ? '' : 's'} before trusting this as a bias.`;
+    else if (sd > 2) verdict = `The jobs disagree (±${fmt(sd, 1)}% job to job). That's usually density changing from blend to blend, not the machine.`;
+    else verdict = `Consistent across ${avg.gapN} jobs (±${fmt(sd, 1)}% job to job), so it's most likely the machine.`;
     const sameBias = Math.abs(g - curBias) <= 0.051;
     parts.push(`<div class="ck-row">
-      <div><strong>Puts out ${fmt(Math.abs(g), 1)}% ${g >= 0 ? 'more' : 'less'} than the monitor</strong>
+      <div><strong>Puts out ${fmt(Math.abs(g), 1)}% ${g >= 0 ? 'more' : 'less'} than the monitor <span class="cal-ci">± ${fmt(ci, 1)}%</span></strong>
       <div class="muted small">${verdict}</div></div>
       <button class="btn" type="button" data-cal="bias" data-v="${g.toFixed(1)}" ${sameBias ? 'disabled' : ''}>${sameBias ? '✓ In use' : 'Use as bias'}</button>
     </div>`);
+    if (avg.acreError !== undefined) {
+      const e = avg.acreError * 100;
+      parts.push(`<div class="ck-row">
+        <div><strong>Monitor acres vs the plan: ${fmtPct(avg.acreError)}</strong>
+        <div class="muted small">${
+          Math.abs(e) < 1
+            ? `The app's applied-acre estimate is within 1% of your monitor over ${avg.acreN} job${avg.acreN === 1 ? '' : 's'}.`
+            : `Your monitor counts ${fmt(Math.abs(e), 1)}% ${e < 0 ? 'fewer' : 'more'} applied acres than the plan predicts (${avg.acreN} job${avg.acreN === 1 ? '' : 's'}). Check the work plan settings (laps, shutoff, corners) match how you drive.`
+        }</div></div>
+      </div>`);
+    }
+    // What would tighten the numbers most.
+    const tip = !logs.some((c) => c.densityMeasured && !c.excluded)
+      ? 'Tip: cup-check the density on a load and tick "Measured with a density cup". One measured load sharpens the bias more than several unmeasured ones.'
+      : avg.gapFromMeasured
+        ? ''
+        : 'Tip: one more cup-checked load and the bias will come from measured loads only.';
+    if (tip) parts.push(`<p class="cal-tip">${tip}</p>`);
     parts.push('</div>');
   }
   parts.push(nowLine);
@@ -1016,7 +1103,9 @@ function renderCalLog() {
         const bits = [
           c.achievedRate ? `rate decrease ${fmt((1 - c.achievedRate / c.requestedRate) * 100, 1)}%` : '',
           gap !== undefined ? `out vs monitor ${fmtPct(gap)}` : '',
-          `${fmt(c.appliedAc, 1)} ac · ${fmtQty(c.used, settings.product.unit)}`,
+          `${fmt(c.appliedAc, 1)} ac${c.predictedAc ? ` (plan ${fmt(c.predictedAc, 1)})` : ''} · ${fmtQty(c.used, settings.product.unit)}`,
+          c.changesPerMile !== undefined ? `${fmt(c.changesPerMile, 0)} speed changes/mi` : '',
+          c.densityMeasured ? 'density cup ✓' : '',
         ].filter(Boolean);
         return `<li class="${c.excluded ? 'excluded' : ''}">
           <div class="cal-main">
@@ -1042,7 +1131,14 @@ $('calLog').addEventListener('click', (e) => {
   const action = b.dataset.cal;
   if (action === 'tracking') {
     m.trackingPct = parseFloat(b.dataset.v!);
+    m.trackingModel = undefined;
     toast(`${m.name}: average rate decrease set to ${fmt(100 - m.trackingPct, 1)}%`);
+  } else if (action === 'trackmodel') {
+    const avg = averageCalibration(logs);
+    if (!avg?.trackingModel) return;
+    m.trackingModel = avg.trackingModel;
+    m.trackingPct = Math.round(avg.tracking! * 1000) / 10;
+    toast(`${m.name}: rate decrease now follows each field's speed changes`);
   } else if (action === 'bias') {
     m.biasPct = parseFloat(b.dataset.v!);
     toast(`${m.name}: bias set to ${fmt(Math.abs(m.biasPct), 1)}% ${m.biasPct > 0 ? 'more' : 'less'}`);
@@ -1057,12 +1153,13 @@ $('calLog').addEventListener('click', (e) => {
     const n = logs.length;
     if (
       !confirm(
-        `Start ${m.name} over from a clean slate?\n\n${n ? `This deletes all ${n} logged job${n === 1 ? '' : 's'} and ` : 'This '}resets its average rate decrease and bias to 0.`,
+        `Start ${m.name} over from a clean slate?\n\n${n ? `This deletes all ${n} logged job${n === 1 ? '' : 's'} and ` : 'This '}resets its average rate decrease and bias to 0. Learned product densities are kept.`,
       )
     )
       return;
     m.calibrations = [];
     m.trackingPct = undefined;
+    m.trackingModel = undefined;
     m.biasPct = undefined;
     ckAddedKey = '';
     toast(`${m.name} reset. Add finished jobs to calibrate it again.`);
@@ -1083,7 +1180,12 @@ $('ckResult').addEventListener('click', (e) => {
     store.saveMachines(machines);
     ckAddedKey = JSON.stringify(ckCurrent);
     const n = m.calibrations.length;
-    toast(`Added to ${m.name} log (${n} job${n === 1 ? '' : 's'})`);
+    // A cup reading of a ticket blend also teaches the product densities.
+    const ings = settings.job?.ingredients;
+    const cup = ckCurrent.densityMeasured && ckCurrent.trueDensity && ings?.length;
+    if (cup) addDensityReading(ings, ckCurrent.trueDensity!, label);
+    toast(`Added to ${m.name} log (${n} job${n === 1 ? '' : 's'})${cup ? ' and the density reading to your products' : ''}`);
+    renderDensityLib();
     renderJobCheck();
     renderCalLog();
     return;
@@ -1106,6 +1208,107 @@ $('ckResult').addEventListener('click', (e) => {
   renderResults();
 });
 
+/** Learned product densities and the cup readings behind them. */
+function renderDensityLib() {
+  const box = $('densityLib');
+  if (!densityReadings.length) {
+    box.innerHTML =
+      '<p class="muted small">No density-cup readings yet. Cup-check a ticket load, then save it from the Product card or tick "Measured with a density cup" when you add the job above. The app learns each product\'s real density and predicts new blends from it.</p>';
+    return;
+  }
+  const model = learnDensities(densityReadings);
+  const counts = new Map<string, number>();
+  const names = new Map<string, string>();
+  for (const r of densityReadings)
+    for (const i of r.ingredients) {
+      const k = ingredientKey(i.name);
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+      names.set(k, i.name);
+    }
+  const rows = model.keys
+    .map((k, i) => {
+      const d = 1 / model.v[i];
+      const sd = d * d * Math.sqrt(Math.max(model.cov[i][i], 0));
+      return `<dt>${esc(names.get(k) ?? k)} <span class="muted small">(${counts.get(k) ?? 0} reading${counts.get(k) === 1 ? '' : 's'})</span></dt><dd>${fmt(d, 1)} <span class="muted small">± ${fmt(sd, 1)}</span></dd>`;
+    })
+    .join('');
+  const list = [...densityReadings]
+    .sort((a, b) => b.date - a.date)
+    .map(
+      (r) => `<li>
+        <div class="cal-main"><strong>${esc(r.label || r.ingredients.map((i) => i.name).join(' + '))}: ${fmt(r.density, 1)} lb/ft³</strong>
+        <span class="muted small">${new Date(r.date).toLocaleDateString()} · ${esc(r.ingredients.map((i) => `${i.name} ${fmt(i.rate, 0)}`).join(' + '))}</span></div>
+        <button class="icon-btn cal-del" type="button" data-dens-del="${r.id}" aria-label="Delete reading">🗑</button>
+      </li>`,
+    )
+    .join('');
+  box.innerHTML = `<p class="muted small">Each product's density as learned from your cup readings (lb/ft³). New blends of these are predicted from them.</p>
+    <dl class="kv">${rows}</dl>
+    <ul class="cal-list">${list}</ul>
+    <button class="btn danger-text" type="button" data-dens-clear>Clear density readings</button>`;
+}
+
+$('densityLib').addEventListener('click', (e) => {
+  const t = e.target as HTMLElement;
+  const del = t.closest<HTMLElement>('[data-dens-del]');
+  if (del) {
+    if (!confirm('Delete this density reading?')) return;
+    densityReadings = densityReadings.filter((r) => r.id !== del.dataset.densDel);
+  } else if (t.closest('[data-dens-clear]')) {
+    if (!confirm(`Delete all ${densityReadings.length} density readings? Learned product densities go back to rough starting values.`)) return;
+    densityReadings = [];
+  } else return;
+  store.saveDensityReadings(densityReadings);
+  renderDensityLib();
+  renderResults();
+});
+
+/** Product card: learned density for the ticket blend, and saving a cup reading. */
+function renderDensityLearn() {
+  const box = $('densityLearn');
+  const j = settings.job;
+  const ings = j?.ingredients;
+  if (!ings?.length || !densityMode()) {
+    box.hidden = true;
+    return;
+  }
+  const p = learnedDensity(ings);
+  const cur = settings.product.density;
+  const parts: string[] = [];
+  if (p) {
+    const same = cur !== undefined && Math.abs(cur - Math.round(p.density * 10) / 10) < 0.05;
+    parts.push(`<div class="ck-row">
+      <div><strong>From your cup checks: ${fmt(p.density, 1)} ± ${fmt(p.sd, 1)}</strong>
+      <div class="muted small">${j?.ticketDensity ? `Ticket says ${fmt(j.ticketDensity, 2)}. ` : ''}Predicted from this blend's ingredients.</div></div>
+      <button class="btn" type="button" data-learn="use" data-v="${p.density.toFixed(1)}" ${same ? 'disabled' : ''}>${same ? '✓ In use' : 'Use'}</button>
+    </div>`);
+  }
+  const saved = densityReadings.some((r) => r.label === j?.ticketNo && cur !== undefined && Math.abs(r.density - cur) < 0.01);
+  parts.push(`<div class="ck-row">
+    <div><strong>Cup-checked this load?</strong>
+    <div class="muted small">Enter the cup reading above and save it. The app learns each product's real density from it.</div></div>
+    <button class="btn" type="button" data-learn="save" ${!cur || saved ? 'disabled' : ''}>${saved ? '✓ Saved' : 'Save reading'}</button>
+  </div>`);
+  box.innerHTML = parts.join('');
+  box.hidden = false;
+}
+
+$('densityLearn').addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLElement>('[data-learn]');
+  const j = settings.job;
+  if (!b || !j?.ingredients) return;
+  if (b.dataset.learn === 'use') {
+    settings.product.density = parseFloat(b.dataset.v!);
+    ($('densityInput') as HTMLInputElement).value = b.dataset.v!;
+    saveSettings();
+    toast(`Density set to ${b.dataset.v} lb/ft³ from your cup checks`);
+  } else if (settings.product.density) {
+    addDensityReading(j.ingredients, settings.product.density, j.ticketNo);
+    toast(`Saved: ${fmt(settings.product.density, 1)} lb/ft³ for this blend`);
+  }
+  renderResults();
+});
+
 // Machine & calibration window -------------------------------------------------
 
 function showMachineTab(tab: 'machine' | 'calibrate') {
@@ -1116,6 +1319,7 @@ function showMachineTab(tab: 'machine' | 'calibrate') {
     prefillJobCheck();
     renderJobCheck();
     renderCalLog();
+    renderDensityLib();
   }
 }
 
@@ -1131,6 +1335,7 @@ for (const id of ['ckLoaded', 'ckLeft', 'ckAcres', 'ckAchieved', 'ckRequested', 
   $(id).addEventListener('input', renderJobCheck);
 }
 $('ckLoadedAs').addEventListener('change', renderJobCheck);
+$('ckCup').addEventListener('change', renderJobCheck);
 
 // ---------------------------------------------------------------------------
 // Field selection
@@ -1773,6 +1978,15 @@ function syncMachineUi() {
   // Stored as % of requested (96); shown as the decrease (4).
   const decrease = m.trackingPct && m.trackingPct !== 100 ? Math.round((100 - m.trackingPct) * 100) / 100 : 0;
   ($('trackingInput') as HTMLInputElement).value = decrease ? String(decrease) : '';
+  const note = $('trackModelNote');
+  note.hidden = !m.trackingModel;
+  if (m.trackingModel) {
+    const cpm = changesPerMile();
+    note.innerHTML =
+      `Learned from your jobs: <b>${fmt(m.trackingModel.a * 100, 1)}%</b> plus <b>${fmt(m.trackingModel.k * 1000, 1)}%</b> per 10 speed changes a mile.` +
+      (cpm !== undefined ? ` This field has ${fmt(cpm, 0)} a mile, so <b>${fmt((1 - machineTracking()) * 100, 1)}%</b>.` : '') +
+      ' Type a number to use a flat value instead.';
+  }
   updateSummaries();
 }
 
@@ -1849,6 +2063,9 @@ function biasChanged(dir?: string) {
 onSeg('biasDirSeg', (v) => biasChanged(v));
 function setTrackingDecrease(decrease: number | undefined) {
   activeMachine().trackingPct = decrease ? 100 - decrease : undefined;
+  // Typing a number means "use this flat value", not the learned model.
+  activeMachine().trackingModel = undefined;
+  $('trackModelNote').hidden = true;
   store.saveMachines(machines);
   renderResults();
 }
@@ -2043,7 +2260,7 @@ $('saveServerBtn').addEventListener('click', () => {
   toast(url ? 'Boundary server saved' : 'Boundary server removed');
 });
 $('exportBtn').addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify({ version: 1, fields, machines }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ version: 1, fields, machines, densityReadings }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `applied-acres-backup-${new Date().toISOString().slice(0, 10)}.json`;
@@ -2064,6 +2281,11 @@ $('restoreInput').addEventListener('change', async (e) => {
     machines = [...machines, ...data.machines.filter((m: MachineRecord) => !knownM.has(m.id))];
     store.saveFields(fields);
     store.saveMachines(machines);
+    if (Array.isArray(data.densityReadings)) {
+      const knownR = new Set(densityReadings.map((r) => r.id));
+      densityReadings = [...densityReadings, ...data.densityReadings.filter((r: DensityReading) => !knownR.has(r.id))];
+      store.saveDensityReadings(densityReadings);
+    }
     syncMachineUi();
     toast(`Restored ${data.fields.length} fields, ${data.machines.length} machines`);
   } catch (err) {
@@ -2468,6 +2690,13 @@ function fillJobConfirm() {
   ($('jobUnit') as HTMLSelectElement).value = unit;
   ($('jobTotal') as HTMLInputElement).value = t ? (t.total !== undefined ? String(t.total) : '') : '';
   ($('jobDensity') as HTMLInputElement).value = String(t?.density ?? p.density ?? '');
+  const learned = t ? learnedDensity(t.products.filter((x) => x.unit === 'lb').map((x) => ({ name: x.name, rate: x.rate }))) : null;
+  $('jobDensityLabel').textContent = learned ? 'Density (learned)' : 'Density on ticket';
+  $('jobDensityHint').hidden = !learned;
+  if (learned) {
+    ($('jobDensity') as HTMLInputElement).value = learned.density.toFixed(1);
+    $('jobDensityHint').textContent = `From your cup checks, ± ${fmt(learned.sd, 1)}.${t?.density ? ` Ticket says ${fmt(t.density, 2)}.` : ''}`;
+  }
   const app = norm(t?.application);
   const machine = (app && machines.find((m) => norm(m.name).includes(app))) || activeMachine();
   $('jobMachine').innerHTML = machines
@@ -2554,6 +2783,8 @@ function startJob() {
         acres: t.acres,
         crop: t.crop,
         products: t.products.map((p) => p.name),
+        ingredients: t.products.filter((p) => p.unit === 'lb').map((p) => ({ name: p.name, rate: p.rate })),
+        ticketDensity: t.density,
         fieldIds: list.map((f) => f.id),
         startedAt: now,
       }

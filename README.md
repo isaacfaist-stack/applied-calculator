@@ -48,6 +48,24 @@ that doesn't fit the others is flagged and can be left out or deleted.
 **Start over** clears the log and resets the machine to no corrections, for
 recalibrating from a clean slate after a repair or a new controller.
 
+**Tuning that separates the error sources:**
+
+- *Learned product densities.* Bulk volumes add, so a blend's density follows
+  from its ingredients. Each density-cup reading of a ticket blend teaches the
+  app what your potash, triple super, MAP, urea and so on really weigh. Once a
+  blend is mostly products you've cup-checked, its density is predicted from the
+  ticket's ingredients and offered instead of the plant's calculated value.
+- *Bias from measured loads.* Tick "Measured with a density cup" when logging a
+  job. With two or more such loads, the bias comes from those only, so density
+  error is kept out of it. The ± shown is a 95% range that narrows with more jobs.
+- *Belt lag by field shape.* The plan counts speed changes (pass starts, lap
+  starts, sharp corners) per mile. With logged jobs from open and cut-up fields,
+  the app fits rate decrease = base + per-speed-change amount and uses the right
+  value for each field, but only when the jobs clearly show it.
+- *Acre check.* Each logged job keeps the plan's applied acres next to the
+  monitor's, so you can see whether the work plan matches how you drive.
+- Recent jobs count for more (a job's weight halves each year).
+
 ## Why applied acres differ from surface acres
 
 A rate controller meters product as *rate × working width × distance driven

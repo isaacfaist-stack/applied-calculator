@@ -2,7 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { type Poly, SQ_M_PER_ACRE, polysArea } from '../src/engine/geometry';
 import { optimizeHeading, plan, prepareField } from '../src/engine/plan';
 import { computeCoverage } from '../src/engine/coverage';
-import { actualRateAt, adviseMidField, adviseRate, averageCalibration, checkJob, densityFor, splitChange } from '../src/engine/rate';
+import {
+  actualRateAt,
+  adviseMidField,
+  adviseRate,
+  averageCalibration,
+  checkJob,
+  densityFor,
+  fitTracking,
+  learnDensities,
+  predictDensity,
+  splitChange,
+  trackingFor,
+} from '../src/engine/rate';
 
 const rect = (w: number, h: number): Poly[] => [
   { outer: [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }], holes: [] },
@@ -306,6 +318,83 @@ describe('rate', () => {
     ])!;
     expect(avg.gap).toBeCloseTo(200 / 20000, 6); // 20,200 lb out of 20,000 expected
     expect(avg.tracking).toBeUndefined();
+  });
+
+  it('belt lag: fits more rate decrease on fields with more speed changes', () => {
+    // Truth: 1% base + 0.2% per speed change per mile.
+    const pts = [4, 10, 18, 25, 32].map((x, i) => ({ x, y: 0.01 + 0.002 * x + (i % 2 ? 0.0004 : -0.0004), w: 60 }));
+    const m = fitTracking(pts)!;
+    expect(m.a).toBeCloseTo(0.01, 2);
+    expect(m.k).toBeCloseTo(0.002, 3);
+    expect(1 - trackingFor(m, 30)).toBeCloseTo(0.07, 2);
+    // Same kind of field every time: no slope to learn, so stay flat.
+    expect(fitTracking(pts.map((p) => ({ ...p, x: 12 })))).toBeUndefined();
+    // Noise with no real trend is not mistaken for one.
+    expect(fitTracking([5, 15, 25, 35].map((x, i) => ({ x, y: [0.04, 0.02, 0.05, 0.03][i], w: 50 })))).toBeUndefined();
+  });
+
+  it('calibration: cup-checked jobs decide the bias; old jobs count less', () => {
+    const now = Date.UTC(2026, 9, 1);
+    const day = 86_400_000;
+    const job = (id: string, gap: number, extra: object = {}) => ({ id, requestedRate: 250, appliedAc: 60, used: 15000 * (1 + gap), ...extra });
+    // Two measured loads show the machine at +2%; ticket-density loads wander.
+    const avg = averageCalibration(
+      [job('m1', 0.02, { densityMeasured: true }), job('m2', 0.021, { densityMeasured: true }), job('t1', 0.07), job('t2', -0.03)],
+      now,
+    )!;
+    expect(avg.gapFromMeasured).toBe(true);
+    expect(avg.gapN).toBe(2);
+    expect(avg.gap).toBeCloseTo(0.0205, 3);
+    // A two-year-old job weighs a quarter as much as today's.
+    const aged = averageCalibration([job('old', 0.06, { date: now - 730 * day }), job('new', 0.0, { date: now })], now)!;
+    expect(aged.gap).toBeCloseTo((0.06 * 0.25) / 1.25, 3);
+    expect(aged.gapSe).toBeGreaterThan(0.01); // two jobs can't be trusted to the tenth
+  });
+
+  it('acre check: monitor acres vs the plan', () => {
+    const avg = averageCalibration([
+      { id: 'a', requestedRate: 250, appliedAc: 69.5, used: 17375, predictedAc: 70.3 },
+      { id: 'b', requestedRate: 250, appliedAc: 101, used: 25250, predictedAc: 102 },
+    ])!;
+    expect(avg.acreN).toBe(2);
+    expect(avg.acreError!).toBeLessThan(0);
+    expect(avg.acreError!).toBeCloseTo(-0.0106, 3);
+  });
+
+  it('blend density: learns ingredient densities from cup checks', () => {
+    // Truth: potash 70, triple super 63 (volumes add).
+    const truth = (k: number, t: number) => 1 / ((k / (k + t)) / 70 + (t / (k + t)) / 63);
+    const reading = (id: string, k: number, t: number) => ({
+      id,
+      date: 0,
+      ingredients: [
+        { name: '0-0-60 Potash', rate: k },
+        { name: '0-46-0 Triple Super', rate: t },
+      ],
+      density: truth(k, t),
+    });
+    const model = learnDensities([reading('a', 250, 200), reading('b', 100, 300), reading('c', 300, 50)]);
+    // A blend it has never seen, from the same products.
+    const p = predictDensity(model, [
+      { name: '0-0-60 potash', rate: 150 },
+      { name: '0-46-0 Triple super', rate: 150 },
+    ])!;
+    expect(p.density).toBeCloseTo(truth(150, 150), 0);
+    expect(Math.abs(p.density - truth(150, 150))).toBeLessThan(0.4);
+    expect(p.coverage).toBeCloseTo(1, 6);
+    expect(p.sd).toBeLessThan(1);
+    // A product with no readings falls back to its rough starting value.
+    const unknown = predictDensity(model, [{ name: '46-0-0 Urea', rate: 100 }])!;
+    expect(unknown.coverage).toBe(0);
+    expect(unknown.density).toBeCloseTo(47, 0);
+  });
+
+  it('plan counts speed changes: square laps have 4 sharp corners each', () => {
+    const W = 70 * 0.3048;
+    const sq: Poly[] = [{ outer: [{ x: 0, y: 0 }, { x: 400, y: 0 }, { x: 400, y: 400 }, { x: 0, y: 400 }], holes: [] }];
+    const r = plan(sq, { widthM: W, sections: 1 }, { headlandLaps: 2, headingDeg: 0, shutoff: 'center', cornerStyle: 'pivot' });
+    // 2 laps × (start + 4 corners) + one stretch per pass
+    expect(r.speedChanges).toBe(2 * 5 + r.passCount);
   });
 
   it('acre constant', () => {

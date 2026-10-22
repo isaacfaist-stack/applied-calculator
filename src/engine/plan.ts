@@ -51,6 +51,21 @@ function cornerOverrun(a: Pt, b: Pt, c: Pt, W: number, ringIsCcw: boolean): numb
   return Math.min(W, (W / 2) * Math.tan(angle / 2));
 }
 
+/** Corners on a closed ring where the heading changes by 45° or more. */
+function sharpTurns(ring: Ring): number {
+  let n = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    const c = ring[(i + 2) % ring.length];
+    let turn = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x);
+    while (turn > Math.PI) turn -= 2 * Math.PI;
+    while (turn < -Math.PI) turn += 2 * Math.PI;
+    if (Math.abs(turn) >= SHARP_TURN_RAD) n++;
+  }
+  return n;
+}
+
 /**
  * When a section (or the whole boom) is switched off at the headland line.
  *  - noskip:    on whenever any part of the section is over unapplied ground
@@ -113,6 +128,12 @@ export interface PlanResult {
   passCount: number;
   /** Total distance driven with product on, meters. */
   onDistanceM: number;
+  /**
+   * Times the machine has to slow down and speed back up with product on:
+   * each start of a pass stretch, each lap start and each sharp headland
+   * corner. Belts lag on these, so more of them per mile = more rate loss.
+   */
+  speedChanges: number;
 }
 
 /** Heading-independent parts of the plan, cached while trying headings. */
@@ -125,6 +146,8 @@ export interface PreparedField {
   headlandPaths: Ring[];
   headlandSwaths: Swath[];
   headlandAppliedM2: number;
+  /** Lap starts plus sharp corners on the headland laps. */
+  headlandSpeedChanges: number;
   interior: Poly[];
   interiorM2: number;
 }
@@ -151,6 +174,7 @@ export function prepareField(
   const headlandPaths: Ring[] = [];
   const headlandSwaths: Swath[] = [];
   let headlandAppliedM2 = 0;
+  let headlandSpeedChanges = 0;
   for (let lap = 1; lap <= headlandLaps; lap++) {
     const centerline = offsetPolys(drivable, -(lap - 0.5) * W);
     for (const p of centerline) {
@@ -158,6 +182,7 @@ export function prepareField(
         const ring = simplifyRing(cleanRing(raw), 0.3);
         if (ring.length < 3) continue;
         headlandPaths.push(ring);
+        headlandSpeedChanges += 1 + sharpTurns(ring);
         const group = headlandPaths.length;
         // Every lap leaves an outside-corner wedge when pivoting, since the
         // lap outside it only reaches the edge of this lap's swath.
@@ -193,6 +218,7 @@ export function prepareField(
     headlandPaths,
     headlandSwaths,
     headlandAppliedM2,
+    headlandSpeedChanges,
     interior,
     interiorM2: polysArea(interior),
   };
@@ -204,13 +230,15 @@ interface PassRun {
   passLines: [Pt, Pt][];
   passCount: number;
   onDistance: number;
+  /** Separate product-on stretches across all passes. */
+  stretches: number;
 }
 
 function runPasses(prep: PreparedField, headingDeg: number, shutoff: ShutoffMode, collect: boolean): PassRun {
   const W = prep.machine.widthM;
   const n = Math.max(1, Math.round(prep.machine.sections));
   const w = W / n;
-  const result: PassRun = { passApplied: 0, swaths: [], passLines: [], passCount: 0, onDistance: 0 };
+  const result: PassRun = { passApplied: 0, swaths: [], passLines: [], passCount: 0, onDistance: 0, stretches: 0 };
   if (!prep.interior.length) return result;
 
   // Rotate the world so passes run along +x.
@@ -261,8 +289,10 @@ function runPasses(prep: PreparedField, headingDeg: number, shutoff: ShutoffMode
     }
     if (passHasProduct) {
       result.passCount++;
+      const stretches = unionIntervals(passOn);
+      result.stretches += stretches.length;
       if (collect) {
-        for (const [x0, x1] of unionIntervals(passOn)) result.passLines.push([back({ x: x0, y: yc }), back({ x: x1, y: yc })]);
+        for (const [x0, x1] of stretches) result.passLines.push([back({ x: x0, y: yc }), back({ x: x1, y: yc })]);
       }
     }
   }
@@ -332,6 +362,7 @@ export function planWithPrepared(prep: PreparedField, opts: Pick<PlanOptions, 'h
     passLines: run.passLines,
     passCount: run.passCount,
     onDistanceM: headlandDistance + run.onDistance,
+    speedChanges: prep.headlandSpeedChanges + run.stretches,
   };
 }
 

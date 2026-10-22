@@ -3,7 +3,7 @@
 
 import type { BoundaryGeometry } from './io/import';
 import type { CornerStyle, ShutoffMode } from './engine/plan';
-import type { CalibrationJob } from './engine/rate';
+import type { CalibrationJob, DensityReading, Ingredient, TrackingModel } from './engine/rate';
 
 export interface FieldRecord {
   id: string;
@@ -50,6 +50,8 @@ export interface MachineRecord {
   biasPct?: number;
   /** Average achieved rate as % of requested (96 = runs 4% under). */
   trackingPct?: number;
+  /** Rate decrease that grows with a field's speed changes; overrides trackingPct when set. */
+  trackingModel?: TrackingModel;
   /** Finished jobs checked on this machine; their average sets tracking and bias. */
   calibrations?: CalibrationRecord[];
 }
@@ -80,6 +82,10 @@ export interface JobRecord {
   acres?: number;
   crop?: string;
   products?: string[];
+  /** Blend ingredients and rates from the ticket, for learning densities. */
+  ingredients?: Ingredient[];
+  /** Density printed on the ticket (calculated by the plant). */
+  ticketDensity?: number;
   fieldIds: string[];
   startedAt: number;
 }
@@ -103,7 +109,7 @@ export interface Settings {
   setupDone?: boolean;
 }
 
-const KEYS = { fields: 'aac.fields.v1', machines: 'aac.machines.v1', settings: 'aac.settings.v1' };
+const KEYS = { fields: 'aac.fields.v1', machines: 'aac.machines.v1', settings: 'aac.settings.v1', density: 'aac.density.v1' };
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -155,6 +161,13 @@ export const store = {
   },
   saveMachines(m: MachineRecord[]) {
     write(KEYS.machines, m);
+  },
+  /** Density-cup readings of blends; they teach the app each product's density. */
+  densityReadings(): DensityReading[] {
+    return read<DensityReading[]>(KEYS.density, []);
+  },
+  saveDensityReadings(r: DensityReading[]) {
+    write(KEYS.density, r);
   },
   settings(): Settings {
     return {

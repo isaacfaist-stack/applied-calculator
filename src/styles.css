@@ -1706,3 +1706,57 @@ dialog.setup {
 .cal-del {
   color: var(--danger);
 }
+
+/* Tuning: learned densities, field-shape rate decrease, confidence ------------ */
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  grid-column: 1 / -1;
+  min-height: 44px;
+}
+
+.check-row input {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  accent-color: var(--accent);
+}
+
+.track-model {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 0.9rem;
+}
+
+.cal-ci {
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.cal-tip {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 0.88rem;
+}
+
+.density-learn {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+#densityLib {
+  display: grid;
+  gap: 12px;
+}
+
+#densityLib > p {
+  margin: 0;
+}
