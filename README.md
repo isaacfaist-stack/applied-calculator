@@ -48,6 +48,17 @@ that doesn't fit the others is flagged and can be left out or deleted.
 **Start over** clears the log and resets the machine to no corrections, for
 recalibrating from a clean slate after a repair or a new controller.
 
+**Finish job from the Operations Center report:** after the field, tap
+**Finish job** on the ticket (Product card) or in 🚜 → Calibrate, and load the
+job report PDF from Operations Center. The app reads the monitor's applied
+acres, applied total, applied and target rate, times and machine serial (which
+picks the machine next time). Product loaded comes from the ticket and the
+density set comes from the app's answer, so the only number to type is **what's
+left over** (or tap Empty). A density-cup reading is optional and makes the
+result sharper. Inputs that don't fit together (wrong report, a reload not
+counted) are flagged before saving. Saving adds the job to the calibration log
+and opens it. For a ticket covering several fields, add one report per field.
+
 **Tuning that separates the error sources:**
 
 - *Learned product densities.* Bulk volumes add, so a blend's density follows

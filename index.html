@@ -330,7 +330,11 @@
           </div>
         </section>
       <section class="tab-pane" id="calibratePane" hidden>
-        <h3>Check a finished job <button type="button" class="info" data-help="calibrate" aria-label="What is checking a finished job?">i</button></h3>
+        <button class="choice finish-entry" type="button" data-action="finish-job">
+          <strong>Finish a job from its Operations Center report</strong>
+          <span class="muted small">Fastest: load the report PDF, enter what's left, done.</span>
+        </button>
+        <h3>Or enter a finished job by hand <button type="button" class="info" data-help="calibrate" aria-label="What is checking a finished job?">i</button></h3>
           <p class="muted small">
             Enter what really happened to work out this machine's rate tracking and whether the density or a bias needs
             changing.
@@ -638,6 +642,67 @@
       <div class="setup-nav">
         <button class="btn" type="button" id="jobBack">Back</button>
         <button class="btn primary" type="button" id="jobNext">Next</button>
+      </div>
+    </dialog>
+
+    <!-- Finish job: Operations Center report → calibration log -->
+    <dialog class="sheet setup" id="finishSheet">
+      <div class="sheet-head">
+        <h2>Finish job <span class="muted" id="finishJobName"></span></h2>
+        <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
+      </div>
+      <p class="muted">Load the job report from Operations Center and enter what's left. The app checks the machine against the monitor and logs it.</p>
+      <div class="setup-choices">
+        <label class="choice file-btn">
+          <strong id="finishPick">Choose Operations Center report PDF</strong>
+          <span class="muted small" id="finishPickSub">Field → job summary → report. One per field if the ticket covered several.</span>
+          <input type="file" id="finishFile" multiple accept=".pdf,application/pdf" />
+        </label>
+      </div>
+      <div class="ticket-read" id="finishRead" hidden></div>
+      <div class="finish-inputs" id="finishInputs" hidden>
+        <div class="grid2">
+          <label class="field">
+            <span>Left over <strong>(weigh it if you can)</strong></span>
+            <div class="input-unit">
+              <input id="finLeft" type="number" inputmode="decimal" min="0" step="any" placeholder="lb" />
+              <span class="suffix finish-unit">lb</span>
+            </div>
+            <span class="row gap"><button class="btn small-btn" type="button" id="finEmpty">Empty</button></span>
+          </label>
+          <label class="field">
+            <span>Product loaded</span>
+            <div class="input-unit">
+              <input id="finLoaded" type="number" inputmode="decimal" min="0" step="any" />
+              <span class="suffix finish-unit">lb</span>
+            </div>
+            <span class="muted small" id="finLoadedHint"></span>
+          </label>
+          <label class="field" id="finProgField">
+            <span>Density set on the display</span>
+            <div class="input-unit">
+              <input id="finProg" type="number" inputmode="decimal" min="1" step="any" />
+              <span class="suffix">lb/ft³</span>
+            </div>
+          </label>
+          <label class="field" id="finCupField">
+            <span>Density cup reading <em>(if you did one)</em></span>
+            <div class="input-unit">
+              <input id="finCup" type="number" inputmode="decimal" min="1" step="any" />
+              <span class="suffix">lb/ft³</span>
+            </div>
+          </label>
+          <label class="field">
+            <span>Machine</span>
+            <select id="finMachine"></select>
+          </label>
+        </div>
+        <div id="finishResult"></div>
+      </div>
+      <p class="setup-error" id="finishError" role="alert" hidden></p>
+      <div class="setup-nav">
+        <button class="btn" type="button" data-close>Cancel</button>
+        <button class="btn primary" type="button" id="finishSave" disabled>Save to calibration log</button>
       </div>
     </dialog>
 

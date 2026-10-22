@@ -25,6 +25,7 @@ import { type ExclusionKind, type LocalField, distanceMiles, geometryCenter, geo
 import { fetchRemoteBoundary, listRemoteFields } from './integrations/boundaryServer';
 import { type BoundaryGeometry, importFiles } from './io/import';
 import { type Ticket, importTicket } from './io/ticket';
+import { type OpsReport, combineReports, importOpsReport } from './io/jdReport';
 import { PolygonEditor } from './map/editor';
 import {
   GoogleMapsError,
@@ -582,7 +583,10 @@ function updateSummaries() {
     $('jobTag').innerHTML =
       `<strong>${j.ticketNo ? `Ticket ${esc(j.ticketNo)}` : 'Blend ticket'}</strong>${who ? ` · ${esc(who)}` : ''}` +
       `${j.acres ? ` · ${fmt(j.acres, 2)} ac on ticket` : ''}` +
-      `${j.products?.length ? `<span class="muted small">${esc(j.products.join(' + '))}</span>` : ''}`;
+      `${j.products?.length ? `<span class="muted small">${esc(j.products.join(' + '))}</span>` : ''}` +
+      (j.finishedAt
+        ? `<span class="job-done">✓ Finished and logged ${new Date(j.finishedAt).toLocaleDateString()}</span>`
+        : `<button class="btn small-btn primary job-finish" type="button" data-action="finish-job">Finish job</button>`);
   }
 
   $('planSummary').textContent = [
@@ -1532,6 +1536,7 @@ document.addEventListener('click', (e) => {
   const t = e.target as HTMLElement;
   if (t.closest('[data-action="open-fields"]')) openFields();
   if (t.closest('[data-action="new-job"]')) openJob();
+  if (t.closest('[data-action="finish-job"]')) openFinish();
 });
 
 function addFields(items: { name: string; grower?: string; farm?: string; geometry: BoundaryGeometry }[], source: string) {
@@ -2785,6 +2790,7 @@ function startJob() {
         products: t.products.map((p) => p.name),
         ingredients: t.products.filter((p) => p.unit === 'lb').map((p) => ({ name: p.name, rate: p.rate })),
         ticketDensity: t.density,
+        loaded: total && total > 0 ? total : undefined,
         fieldIds: list.map((f) => f.id),
         startedAt: now,
       }
@@ -2808,6 +2814,239 @@ $('jobNext').addEventListener('click', () => {
   } else {
     startJob();
   }
+});
+
+
+// ---------------------------------------------------------------------------
+// Finish a job: the Operations Center report gives the monitor's side, the
+// ticket gives what was loaded, the operator enters what's left. The result
+// goes straight into the machine's calibration log.
+
+let finishReports: OpsReport[] = [];
+
+function finishReport(): OpsReport | null {
+  return combineReports(finishReports);
+}
+
+/** True when the planned fields are this job's, so the plan can be compared. */
+function planIsForJob(): boolean {
+  const j = settings.job;
+  if (!result || !entries.length) return false;
+  return !j || j.fieldIds.join() === entries.map((e) => e.field.id).join();
+}
+
+function openFinish() {
+  if (editSession) stopEdit();
+  for (const id of ['machineSheet', 'fieldsSheet']) (document.getElementById(id) as HTMLDialogElement).close();
+  finishReports = [];
+  const j = settings.job;
+  const p = settings.product;
+  $('finishJobName').textContent = j?.ticketNo
+    ? `· Ticket ${j.ticketNo}`
+    : entries.length
+      ? `· ${entries.map((e) => e.field.name).join(' + ')}`
+      : '';
+  const loaded = j?.loaded ?? (p.loaded ? (p.loadedAs === 'acres' ? p.loaded * p.rate : p.loaded) : undefined);
+  ($('finLoaded') as HTMLInputElement).value = loaded ? String(Math.round(loaded * 100) / 100) : '';
+  $('finLoadedHint').textContent = j?.loaded ? 'From the ticket' : loaded ? 'From Product given' : '';
+  ($('finLeft') as HTMLInputElement).value = '';
+  ($('finCup') as HTMLInputElement).value = '';
+  const dry = isDryUnit(p.unit);
+  const prog = densityMode() ? recommendedDensity : p.density;
+  ($('finProg') as HTMLInputElement).value = dry && prog ? prog.toFixed(1) : '';
+  $('finProgField').hidden = !dry;
+  $('finCupField').hidden = !dry;
+  for (const el of document.querySelectorAll('.finish-unit')) el.textContent = p.unit;
+  $('finMachine').innerHTML = machines
+    .map((m) => `<option value="${m.id}" ${m.id === activeMachine().id ? 'selected' : ''}>${esc(m.name)}</option>`)
+    .join('');
+  $('finishRead').hidden = true;
+  $('finishInputs').hidden = true;
+  $('finishError').hidden = true;
+  $('finishPick').textContent = 'Choose Operations Center report PDF';
+  ($('finishSave') as HTMLButtonElement).disabled = true;
+  openSheet('finishSheet');
+}
+
+function renderFinishRead() {
+  const r = finishReport();
+  if (!r) return;
+  const unit = r.unit;
+  const when = r.start
+    ? `${r.start.toLocaleDateString()} ${r.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${
+        r.end ? `–${r.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''
+      }`
+    : undefined;
+  const rows: [string, string | undefined][] = [
+    ['Field', [r.field, r.farm && `(${r.farm})`].filter(Boolean).join(' ')],
+    ['Product', r.product],
+    ['When', when],
+    ['Applied acres (monitor)', `${fmt(r.areaAc, 2)} ac`],
+    ['Applied total (monitor)', r.appliedTotal !== undefined ? fmtQty(r.appliedTotal, unit) : undefined],
+    [
+      'Applied vs target rate',
+      r.appliedRate !== undefined && r.targetRate !== undefined
+        ? `${fmt(r.appliedRate, 1)} of ${fmt(r.targetRate, 1)} ${unit}/ac`
+        : undefined,
+    ],
+    ['Machine', r.equipment],
+  ];
+  const notes: string[] = [];
+  const j = settings.job;
+  const jobNames = entries.map((e) => norm(e.field.name));
+  const reportNames = finishReports.map((x) => norm(x.field));
+  if (entries.length && reportNames.length && !reportNames.some((n) => jobNames.some((jn) => jn && n && (jn.includes(n) || n.includes(jn))))) {
+    notes.push(`The report is for “${esc(r.field ?? '?')}” but this job is “${esc(entries.map((e) => e.field.name).join(' + '))}”. Make sure it's the right report.`);
+  }
+  if (j?.ticketNo && finishReports.length === 1 && entries.length > 1) {
+    notes.push('This ticket covered several fields. Add the report for each one.');
+  }
+  $('finishRead').innerHTML =
+    `<dl class="kv">${rows
+      .filter((x) => x[1])
+      .map(([k, v]) => `<dt>${k}</dt><dd>${esc(v!)}</dd>`)
+      .join('')}</dl>` +
+    (finishReports.length > 1 ? `<p class="muted small">${finishReports.length} reports added together.</p>` : '') +
+    notes.map((n) => `<p class="finish-note">${n}</p>`).join('');
+  $('finishRead').hidden = false;
+  $('finishInputs').hidden = false;
+  $('finishPick').textContent = 'Add another report (another field on this ticket)';
+}
+
+/** The job as it goes into the log, or why it can't yet. */
+function finishJob(): { job: Omit<CalibrationRecord, 'id' | 'label' | 'date'>; check: NonNullable<ReturnType<typeof checkJob>> } | string {
+  const r = finishReport();
+  if (!r) return 'Load the job report first.';
+  const loaded = num($('finLoaded') as HTMLInputElement);
+  const left = num($('finLeft') as HTMLInputElement);
+  if (!loaded) return 'Enter the product loaded.';
+  if (left === undefined) return 'Enter what was left over (or tap Empty).';
+  const requested = r.targetRate ?? settings.product.rate;
+  if (!requested) return 'The report has no target rate.';
+  const dry = isDryUnit(settings.product.unit);
+  const cup = dry ? num($('finCup') as HTMLInputElement) : undefined;
+  const programmed = dry ? num($('finProg') as HTMLInputElement) : undefined;
+  const trueDensity = cup ?? (dry ? settings.product.density : undefined);
+  const job = {
+    requestedRate: requested,
+    achievedRate: r.appliedRate,
+    monitorTotal: r.appliedTotal,
+    appliedAc: r.areaAc,
+    used: loaded - left,
+    trueDensity,
+    programmedDensity: programmed,
+    densityMeasured: !!cup,
+    changesPerMile: planIsForJob() ? changesPerMile() : undefined,
+    predictedAc: planIsForJob() && result ? result.appliedM2 / SQ_M_PER_ACRE : undefined,
+    ticketNo: settings.job?.ticketNo,
+  };
+  const check = checkJob(job);
+  if (!check) return 'Check the numbers: more left over than was loaded?';
+  return { job, check };
+}
+
+function renderFinish() {
+  const out = $('finishResult');
+  const f = finishJob();
+  ($('finishSave') as HTMLButtonElement).disabled = typeof f === 'string';
+  if (typeof f === 'string') {
+    out.innerHTML = finishReports.length ? `<p class="muted small">${f}</p>` : '';
+    ($('finishSave') as HTMLButtonElement).textContent = 'Save to calibration log';
+    return;
+  }
+  const { job, check } = f;
+  const unit = settings.product.unit;
+  const parts: string[] = [];
+  parts.push(`<dl class="kv">
+    <dt>Product used (loaded − left)</dt><dd class="strong">${fmtQty(job.used, unit)}</dd>
+    <dt>Monitor says it put out</dt><dd>${fmtQty(check.monitorProduct, unit)}</dd>
+    ${job.programmedDensity && job.trueDensity && Math.abs(job.programmedDensity - job.trueDensity) > 0.05 ? `<dt>Should have left at ${fmt(job.programmedDensity, 1)} set, ${fmt(job.trueDensity, 1)} real</dt><dd>${fmtQty(check.expectedOut, unit)}</dd>` : ''}
+  </dl>`);
+  if (check.tracking !== undefined) {
+    parts.push(`<p class="finish-line"><b>Belt:</b> averaged ${fmt(Math.abs(1 - check.tracking) * 100, 1)}% ${check.tracking <= 1 ? 'under' : 'over'} the target.</p>`);
+  }
+  const g = check.gap;
+  parts.push(
+    `<p class="finish-line"><b>Machine vs monitor:</b> ${Math.abs(g) < 0.005 ? 'within ½%.' : `${fmt(Math.abs(g) * 100, 1)}% ${g > 0 ? 'more' : 'less'} went out than the monitor accounts for.`} ${
+      job.densityMeasured
+        ? 'Density was cup-checked, so this is the machine.'
+        : 'Without a cup reading this is the machine and the ticket density mixed together; the log sorts them out over several jobs.'
+    }</p>`,
+  );
+  if (job.predictedAc) {
+    const e = job.appliedAc / job.predictedAc - 1;
+    parts.push(`<p class="finish-line"><b>Acres:</b> plan predicted ${fmt(job.predictedAc, 1)} applied ac, monitor counted ${fmt(job.appliedAc, 1)} (${fmtPct(e)}).</p>`);
+  }
+  // A machine is never this far off; the inputs don't belong together.
+  const odd = Math.abs(g) > 0.15;
+  if (odd) {
+    const r = finishReport()!;
+    parts.push(`<div class="answer-warn severe"><strong>⚠ These numbers don't fit together (${fmtPct(g)}).</strong><ul>
+      <li>The monitor says ${fmtQty(check.monitorProduct, unit)} went out on ${fmt(r.areaAc, 1)} ac, but ${fmtQty(job.used, unit)} was used.</li>
+      <li>Is it the right report for this job? Reloaded during the job? Add every load to Product loaded.</li>
+      ${job.programmedDensity ? `<li>Density set on the display: ${fmt(job.programmedDensity, 1)} lb/ft³. Is that what was really set?</li>` : ''}
+    </ul>Saving it anyway would throw off the averages; it will be flagged in the log.</div>`);
+  }
+  ($('finishSave') as HTMLButtonElement).textContent = odd ? 'Save anyway' : 'Save to calibration log';
+  out.innerHTML = parts.join('');
+}
+
+$('finishFile').addEventListener('change', async (e) => {
+  const input = e.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
+  input.value = '';
+  if (!files.length) return;
+  $('finishError').hidden = true;
+  try {
+    for (const f of files) finishReports.push(await importOpsReport(f));
+  } catch (err) {
+    $('finishError').textContent = (err as Error).message;
+    $('finishError').hidden = false;
+    if (!finishReports.length) return;
+  }
+  // Pick the machine that ran this job by its serial number.
+  const serial = finishReports.find((r) => r.serial)?.serial;
+  const known = serial && machines.find((m) => m.equipment?.includes(serial));
+  if (known) ($('finMachine') as HTMLSelectElement).value = known.id;
+  renderFinishRead();
+  renderFinish();
+  ($('finLeft') as HTMLInputElement).focus();
+});
+for (const id of ['finLeft', 'finLoaded', 'finProg', 'finCup']) $(id).addEventListener('input', renderFinish);
+$('finEmpty').addEventListener('click', (e) => {
+  e.preventDefault();
+  ($('finLeft') as HTMLInputElement).value = '0';
+  renderFinish();
+});
+
+$('finishSave').addEventListener('click', () => {
+  const f = finishJob();
+  if (typeof f === 'string') {
+    $('finishError').textContent = f;
+    $('finishError').hidden = false;
+    return;
+  }
+  const r = finishReport()!;
+  const m = machines.find((x) => x.id === ($('finMachine') as HTMLSelectElement).value) ?? activeMachine();
+  const j = settings.job;
+  const label = j?.ticketNo
+    ? `Ticket ${j.ticketNo}${j.fieldName ? ` · ${j.fieldName}` : ''}`
+    : r.field ?? entries.map((e) => e.field.name).join(' + ');
+  m.calibrations = [...(m.calibrations ?? []), { ...f.job, id: uid(), date: r.end?.getTime() ?? Date.now(), label }];
+  if (r.serial && !m.equipment?.includes(r.serial)) m.equipment = [...(m.equipment ?? []), r.serial];
+  store.saveMachines(machines);
+  const ings = j?.ingredients;
+  const cup = f.job.densityMeasured && f.job.trueDensity && ings?.length;
+  if (cup) addDensityReading(ings, f.job.trueDensity!, j?.ticketNo);
+  if (j) j.finishedAt = Date.now();
+  settings.activeMachineId = m.id;
+  saveSettings();
+  ($('finishSheet') as HTMLDialogElement).close();
+  renderResults();
+  // Show the updated averages right away.
+  openMachineSheet('calibrate');
+  const n = m.calibrations.length;
+  toast(`Logged to ${m.name} (${n} job${n === 1 ? '' : 's'})${cup ? ' and the density reading saved' : ''}`);
 });
 
 // ---------------------------------------------------------------------------

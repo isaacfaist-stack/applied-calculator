@@ -52,6 +52,8 @@ export interface MachineRecord {
   trackingPct?: number;
   /** Rate decrease that grows with a field's speed changes; overrides trackingPct when set. */
   trackingModel?: TrackingModel;
+  /** Serial numbers from job reports, to pick this machine automatically. */
+  equipment?: string[];
   /** Finished jobs checked on this machine; their average sets tracking and bias. */
   calibrations?: CalibrationRecord[];
 }
@@ -59,6 +61,7 @@ export interface MachineRecord {
 export interface CalibrationRecord extends CalibrationJob {
   date: number;
   label: string;
+  ticketNo?: string;
 }
 
 export interface ProductSettings {
@@ -88,6 +91,10 @@ export interface JobRecord {
   ticketDensity?: number;
   fieldIds: string[];
   startedAt: number;
+  /** Ticket total (what was loaded), from the ticket. */
+  loaded?: number;
+  /** Logged to the calibration log from the job report. */
+  finishedAt?: number;
 }
 
 export type Imagery = 'google-satellite' | 'google-hybrid' | 'esri';

@@ -397,6 +397,14 @@ describe('rate', () => {
     expect(r.speedChanges).toBe(2 * 5 + r.passCount);
   });
 
+  it('job check uses the monitor total from a job report', () => {
+    // Operations Center: 198.3 ac, 48,991 lb applied, target 250.
+    const r = checkJob({ requestedRate: 250, appliedAc: 198.3, monitorTotal: 48991, used: 49600 })!;
+    expect(r.monitorProduct).toBe(48991);
+    expect(r.tracking).toBeCloseTo(48991 / 198.3 / 250, 6);
+    expect(r.gap).toBeCloseTo(49600 / 48991 - 1, 6);
+  });
+
   it('acre constant', () => {
     expect(SQ_M_PER_ACRE).toBeCloseTo(4046.86, 2);
   });

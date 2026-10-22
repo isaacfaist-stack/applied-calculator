@@ -160,6 +160,8 @@ export interface JobCheckInputs {
   achievedRate?: number;
   /** Applied acres the monitor counted. */
   appliedAc: number;
+  /** The monitor's own applied total, when a job report gives it (more exact than rate × acres). */
+  monitorTotal?: number;
   /** Product that really left the machine (load − leftover, by weight). */
   used: number;
   /** True product density and the density programmed in; optional. */
@@ -182,7 +184,9 @@ export interface JobCheckResult {
 
 export function checkJob(i: JobCheckInputs): JobCheckResult | null {
   if (!(i.requestedRate > 0) || !(i.appliedAc > 0) || !(i.used > 0)) return null;
-  const achieved = i.achievedRate && i.achievedRate > 0 ? i.achievedRate : i.requestedRate;
+  const reported = i.monitorTotal && i.monitorTotal > 0 ? i.monitorTotal / i.appliedAc : undefined;
+  const achievedRate = reported ?? (i.achievedRate && i.achievedRate > 0 ? i.achievedRate : undefined);
+  const achieved = achievedRate ?? i.requestedRate;
   const monitorProduct = achieved * i.appliedAc;
   const densityRatio =
     i.trueDensity && i.programmedDensity && i.trueDensity > 0 && i.programmedDensity > 0
@@ -190,7 +194,7 @@ export function checkJob(i: JobCheckInputs): JobCheckResult | null {
       : 1;
   const expectedOut = monitorProduct * densityRatio;
   return {
-    tracking: i.achievedRate && i.achievedRate > 0 ? i.achievedRate / i.requestedRate : undefined,
+    tracking: achievedRate !== undefined ? achievedRate / i.requestedRate : undefined,
     monitorProduct,
     expectedOut,
     gap: i.used / expectedOut - 1,
@@ -209,6 +213,8 @@ export interface CalibrationJob {
   requestedRate: number;
   achievedRate?: number;
   appliedAc: number;
+  /** The monitor's applied total from a job report. */
+  monitorTotal?: number;
   used: number;
   trueDensity?: number;
   programmedDensity?: number;
@@ -327,14 +333,14 @@ export function averageCalibration(all: CalibrationJob[], now = Date.now()): Cal
   if (!counted.length) return null;
   const age = (j: CalibrationJob) => recency(j.date, now);
 
-  const tracked = counted.filter((x) => x.j.achievedRate && x.j.achievedRate > 0);
+  const tracked = counted.filter((x) => x.r.tracking !== undefined);
   const tracking = tracked.length
-    ? tracked.reduce((s, x) => s + x.j.achievedRate! * x.j.appliedAc * age(x.j), 0) /
+    ? tracked.reduce((s, x) => s + x.r.tracking! * x.j.requestedRate * x.j.appliedAc * age(x.j), 0) /
       tracked.reduce((s, x) => s + x.j.requestedRate * x.j.appliedAc * age(x.j), 0)
     : undefined;
   const shaped = tracked.filter((x) => x.j.changesPerMile !== undefined);
   const trackingModel = fitTracking(
-    shaped.map((x) => ({ x: x.j.changesPerMile!, y: 1 - x.j.achievedRate! / x.j.requestedRate, w: x.j.appliedAc * age(x.j) })),
+    shaped.map((x) => ({ x: x.j.changesPerMile!, y: 1 - x.r.tracking!, w: x.j.appliedAc * age(x.j) })),
   );
 
   // With density measured on 2+ loads, the gap from those is the machine;

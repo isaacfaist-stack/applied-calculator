@@ -1760,3 +1760,57 @@ dialog.setup {
 #densityLib > p {
   margin: 0;
 }
+
+/* Finish job ---------------------------------------------------------------------- */
+
+.job-tag .job-finish {
+  align-self: flex-start;
+  margin: 6px 0 0;
+}
+
+.job-done {
+  color: var(--good);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.finish-entry {
+  width: 100%;
+  margin-bottom: 18px;
+  border-color: var(--accent);
+}
+
+#finishSheet .setup-choices {
+  margin: 12px 0;
+}
+
+.finish-inputs {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.finish-inputs .field .row {
+  margin-top: 6px;
+}
+
+#finishResult {
+  display: grid;
+  gap: 8px;
+}
+
+.finish-line {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.finish-note {
+  margin: 10px 0 0;
+  color: var(--warn);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.finish-inputs .small-btn {
+  margin-left: 0;
+}
