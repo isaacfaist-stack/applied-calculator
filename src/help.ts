@@ -140,7 +140,7 @@ export const HELP: Record<string, HelpEntry> = {
   decrease: {
     title: 'Average rate decrease',
     body: `<p>Belts can't always keep up when ground speed changes, so the job average on the monitor comes in under the rate you asked for. Requested 250, job average 240: enter <b>4</b>.</p>
-      <p>The loss happens where you slow down and speed back up: pass starts, turns and corners. Once your calibration log has jobs from both open and cut-up fields, the app learns how much more you lose per speed change and uses the right amount for each field.</p>`,
+      <p>The loss happens where you slow down and speed back up: pass starts, turns and corners. Your Operations Center job reports show it as the lowest rate band, so after the first finished job the app knows the loss comes from speed changes. It then scales it by each field's speed changes per mile (pass starts, laps and sharp corners from the work plan), so a cut-up field gets more correction than an open one.</p>`,
   },
   densitylearn: {
     title: 'Learned product densities',

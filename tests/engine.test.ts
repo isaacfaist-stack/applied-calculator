@@ -9,6 +9,7 @@ import {
   averageCalibration,
   checkJob,
   densityFor,
+  fitLagTracking,
   fitTracking,
   learnDensities,
   predictDensity,
@@ -331,6 +332,22 @@ describe('rate', () => {
     expect(fitTracking(pts.map((p) => ({ ...p, x: 12 })))).toBeUndefined();
     // Noise with no real trend is not mistaken for one.
     expect(fitTracking([5, 15, 25, 35].map((x, i) => ({ x, y: [0.04, 0.02, 0.05, 0.03][i], w: 50 })))).toBeUndefined();
+  });
+
+  it('belt lag from a job report: scales with speed changes from the first job', () => {
+    // Home: 1.2% under on a field with 4 speed changes a mile, lag band seen.
+    const avg = averageCalibration([
+      { id: 'home', requestedRate: 250, appliedAc: 198.3, monitorTotal: 48991, used: 49600, changesPerMile: 4, lagAreaPct: 0.05 },
+    ])!;
+    expect(avg.trackingModel?.fromLag).toBe(true);
+    const dec = 1 - 48991 / 198.3 / 250;
+    expect(1 - trackingFor(avg.trackingModel!, 4)).toBeCloseTo(dec, 6);
+    // A field with twice the speed changes a mile loses twice as much.
+    expect(1 - trackingFor(avg.trackingModel!, 8)).toBeCloseTo(2 * dec, 6);
+    // Without the lag band, one job stays a flat average.
+    const flat = averageCalibration([{ id: 'x', requestedRate: 250, appliedAc: 198.3, monitorTotal: 48991, used: 49600, changesPerMile: 4 }])!;
+    expect(flat.trackingModel).toBeUndefined();
+    expect(fitLagTracking([{ x: 0, y: 0.01, w: 1 }])).toBeUndefined();
   });
 
   it('calibration: cup-checked jobs decide the bias; old jobs count less', () => {

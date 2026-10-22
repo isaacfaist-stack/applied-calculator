@@ -222,6 +222,11 @@ export interface CalibrationJob {
   densityMeasured?: boolean;
   /** Plan's speed changes per mile with product on (see PlanResult). */
   changesPerMile?: number;
+  /**
+   * Share of the area in the job report's lowest rate band: where the belt
+   * was still catching up after a speed change (0.05 = 5%).
+   */
+  lagAreaPct?: number;
   /** Plan's applied acres, to compare with the monitor's. */
   predictedAc?: number;
   /** When the job was done (ms); older jobs count for less. */
@@ -238,6 +243,8 @@ export interface TrackingModel {
   a: number;
   /** Extra rate decrease per speed change per mile (fraction). */
   k: number;
+  /** Fitted through zero because the job reports show the loss is belt lag at speed changes. */
+  fromLag?: boolean;
 }
 
 export interface CalibrationAverage {
@@ -318,6 +325,19 @@ export function fitTracking(pts: { x: number; y: number; w: number }[]): Trackin
   return { a, k };
 }
 
+/**
+ * When the reports show the rate loss is belt lag at speed changes, the loss
+ * scales with speed changes per mile from the first job: decrease = k × x,
+ * fitted through zero (weighted by acres and recency).
+ */
+export function fitLagTracking(pts: { x: number; y: number; w: number }[]): TrackingModel | undefined {
+  const use = pts.filter((p) => p.x > 0);
+  const sxx = use.reduce((s, p) => s + p.w * p.x * p.x, 0);
+  if (!use.length || !(sxx > 0)) return undefined;
+  const k = use.reduce((s, p) => s + p.w * p.x * p.y, 0) / sxx;
+  return k > 0 ? { a: 0, k, fromLag: true } : undefined;
+}
+
 export function trackingFor(model: TrackingModel, changesPerMile: number): number {
   const decrease = Math.min(0.5, Math.max(-0.2, model.a + model.k * changesPerMile));
   return 1 - decrease;
@@ -339,9 +359,11 @@ export function averageCalibration(all: CalibrationJob[], now = Date.now()): Cal
       tracked.reduce((s, x) => s + x.j.requestedRate * x.j.appliedAc * age(x.j), 0)
     : undefined;
   const shaped = tracked.filter((x) => x.j.changesPerMile !== undefined);
-  const trackingModel = fitTracking(
-    shaped.map((x) => ({ x: x.j.changesPerMile!, y: 1 - x.r.tracking!, w: x.j.appliedAc * age(x.j) })),
-  );
+  const shapePts = shaped.map((x) => ({ x: x.j.changesPerMile!, y: 1 - x.r.tracking!, w: x.j.appliedAc * age(x.j) }));
+  // Jobs from varied fields can show base + lag on their own; otherwise the
+  // reports' lag band says the loss is belt lag, which scales with speed changes.
+  const lagSeen = shaped.some((x) => (x.j.lagAreaPct ?? 0) > 0);
+  const trackingModel = fitTracking(shapePts) ?? (lagSeen ? fitLagTracking(shapePts) : undefined);
 
   // With density measured on 2+ loads, the gap from those is the machine;
   // the rest also carry each blend's density error.

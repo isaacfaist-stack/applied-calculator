@@ -93,6 +93,8 @@ describe('Operations Center job report', () => {
     expect(r.rateBins).toHaveLength(7);
     expect(r.rateBins[r.rateBins.length - 1]).toEqual({ rate: 0, pct: 5 });
     expect(r.rateBins.reduce((s, b) => s + b.pct, 0)).toBe(99);
+    expect(r.lagAreaPct).toBeCloseTo(0.05, 6);
+    expect(r.lagBelow).toBe(234.2);
   });
 
   it('rejects something that is not a job report', () => {

@@ -1025,7 +1025,9 @@ function renderCalLog() {
   const curTrack = m.trackingPct !== undefined ? 100 - m.trackingPct : 0;
   const curBias = m.biasPct ?? 0;
   const nowTrack = m.trackingModel
-    ? `rate decrease ${fmt(m.trackingModel.a * 100, 1)}% + ${fmt(m.trackingModel.k * 1000, 1)}% per 10 speed changes a mile`
+    ? m.trackingModel.fromLag
+      ? `belt lag ${fmt(m.trackingModel.k * 100, 2)}% for each speed change per mile`
+      : `rate decrease ${fmt(m.trackingModel.a * 100, 1)}% + ${fmt(m.trackingModel.k * 100, 2)}% for each speed change per mile`
     : `average rate decrease ${fmt(curTrack, 1)}%`;
   const nowLine = `<p class="muted small">This machine now: ${nowTrack} · bias ${fmtPct(curBias / 100)}.</p>`;
   if (!logs.length) {
@@ -1045,9 +1047,18 @@ function renderCalLog() {
       const tm = avg.trackingModel;
       const cpm = changesPerMile();
       const same = !!m.trackingModel && Math.abs(m.trackingModel.a - tm.a) < 1e-4 && Math.abs(m.trackingModel.k - tm.k) < 1e-6;
+      const here = cpm !== undefined ? ` This field (${fmt(cpm, 0)} a mile): ${fmt((1 - trackingFor(tm, cpm)) * 100, 1)}%.` : '';
       parts.push(`<div class="ck-row">
-        <div><strong>Rate decrease ${fmt(tm.a * 100, 1)}% + ${fmt(tm.k * 1000, 1)}% per 10 speed changes a mile</strong>
-        <div class="muted small">Your jobs show the belt losing more on cut-up fields.${cpm !== undefined ? ` This field (${fmt(cpm, 0)} a mile): ${fmt((1 - trackingFor(tm, cpm)) * 100, 1)}%.` : ''} Flat average would be ${fmt((1 - avg.tracking!) * 100, 1)}%.</div></div>
+        <div><strong>${
+          tm.fromLag
+            ? `Belt lag: ${fmt(tm.k * 100, 2)}% rate decrease for each speed change per mile`
+            : `Rate decrease ${fmt(tm.a * 100, 1)}% + ${fmt(tm.k * 100, 2)}% for each speed change per mile`
+        }</strong>
+        <div class="muted small">${
+          tm.fromLag
+            ? 'Your job reports show the loss is the belt catching up after speed changes, so cut-up fields get more and open fields less.'
+            : 'Your jobs show the belt losing more on cut-up fields.'
+        }${here} Flat average would be ${fmt((1 - avg.tracking!) * 100, 1)}%.</div></div>
         <button class="btn" type="button" data-cal="trackmodel" ${same ? 'disabled' : ''}>${same ? '✓ In use' : 'Use'}</button>
       </div>`);
     } else if (avg.tracking !== undefined) {
@@ -1109,6 +1120,7 @@ function renderCalLog() {
           gap !== undefined ? `out vs monitor ${fmtPct(gap)}` : '',
           `${fmt(c.appliedAc, 1)} ac${c.predictedAc ? ` (plan ${fmt(c.predictedAc, 1)})` : ''} · ${fmtQty(c.used, settings.product.unit)}`,
           c.changesPerMile !== undefined ? `${fmt(c.changesPerMile, 0)} speed changes/mi` : '',
+          c.lagAreaPct ? `lag band ${fmt(c.lagAreaPct * 100, 0)}%` : '',
           c.densityMeasured ? 'density cup ✓' : '',
         ].filter(Boolean);
         return `<li class="${c.excluded ? 'excluded' : ''}">
@@ -1988,7 +2000,9 @@ function syncMachineUi() {
   if (m.trackingModel) {
     const cpm = changesPerMile();
     note.innerHTML =
-      `Learned from your jobs: <b>${fmt(m.trackingModel.a * 100, 1)}%</b> plus <b>${fmt(m.trackingModel.k * 1000, 1)}%</b> per 10 speed changes a mile.` +
+      (m.trackingModel.fromLag
+        ? `Belt lag learned from your job reports: <b>${fmt(m.trackingModel.k * 100, 2)}%</b> for each speed change per mile.`
+        : `Learned from your jobs: <b>${fmt(m.trackingModel.a * 100, 1)}%</b> plus <b>${fmt(m.trackingModel.k * 100, 2)}%</b> for each speed change per mile.`) +
       (cpm !== undefined ? ` This field has ${fmt(cpm, 0)} a mile, so <b>${fmt((1 - machineTracking()) * 100, 1)}%</b>.` : '') +
       ' Type a number to use a flat value instead.';
   }
@@ -2938,6 +2952,7 @@ function finishJob(): { job: Omit<CalibrationRecord, 'id' | 'label' | 'date'>; c
     densityMeasured: !!cup,
     changesPerMile: planIsForJob() ? changesPerMile() : undefined,
     predictedAc: planIsForJob() && result ? result.appliedM2 / SQ_M_PER_ACRE : undefined,
+    lagAreaPct: r.lagAreaPct,
     ticketNo: settings.job?.ticketNo,
   };
   const check = checkJob(job);
@@ -2963,7 +2978,16 @@ function renderFinish() {
     ${job.programmedDensity && job.trueDensity && Math.abs(job.programmedDensity - job.trueDensity) > 0.05 ? `<dt>Should have left at ${fmt(job.programmedDensity, 1)} set, ${fmt(job.trueDensity, 1)} real</dt><dd>${fmtQty(check.expectedOut, unit)}</dd>` : ''}
   </dl>`);
   if (check.tracking !== undefined) {
-    parts.push(`<p class="finish-line"><b>Belt:</b> averaged ${fmt(Math.abs(1 - check.tracking) * 100, 1)}% ${check.tracking <= 1 ? 'under' : 'over'} the target.</p>`);
+    const r = finishReport()!;
+    const lag =
+      r.lagAreaPct && r.lagBelow
+        ? ` ${fmt(r.lagAreaPct * 100, 0)}% of the area (${fmt(r.lagAreaPct * r.areaAc, 1)} ac) went on below ${fmt(r.lagBelow, 0)} ${unit}/ac while the belt caught up after speed changes${
+            job.changesPerMile && result && planIsForJob()
+              ? `, about ${fmt((r.lagAreaPct * r.areaAc) / result.speedChanges, 2)} ac per speed change (${result.speedChanges} in the plan)`
+              : ''
+          }.`
+        : '';
+    parts.push(`<p class="finish-line"><b>Belt:</b> averaged ${fmt(Math.abs(1 - check.tracking) * 100, 1)}% ${check.tracking <= 1 ? 'under' : 'over'} the target.${lag}</p>`);
   }
   const g = check.gap;
   parts.push(

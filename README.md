@@ -70,9 +70,11 @@ and opens it. For a ticket covering several fields, add one report per field.
   job. With two or more such loads, the bias comes from those only, so density
   error is kept out of it. The ± shown is a 95% range that narrows with more jobs.
 - *Belt lag by field shape.* The plan counts speed changes (pass starts, lap
-  starts, sharp corners) per mile. With logged jobs from open and cut-up fields,
-  the app fits rate decrease = base + per-speed-change amount and uses the right
-  value for each field, but only when the jobs clearly show it.
+  starts, sharp corners) per mile. The Operations Center report's lowest rate
+  band is the belt catching up after speed changes, so from the first finished
+  job the rate decrease is scaled by each field's speed changes per mile (a
+  cut-up field gets more, an open one less). With jobs from varied fields the
+  app can also fit a base amount plus a per-speed-change amount.
 - *Acre check.* Each logged job keeps the plan's applied acres next to the
   monitor's, so you can see whether the work plan matches how you drive.
 - Recent jobs count for more (a job's weight halves each year).

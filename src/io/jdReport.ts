@@ -25,8 +25,12 @@ export interface OpsReport {
   equipment?: string;
   /** Serial / VIN, for matching the machine next time. */
   serial?: string;
-  /** Applied-rate legend: share of the area at each rate. */
+  /** Applied-rate legend: share of the area at each rate (each label is a band's lower edge). */
   rateBins: { rate: number; pct: number }[];
+  /** Share of the area in the lowest band (0.05 = 5%): the belt catching up after speed changes. */
+  lagAreaPct?: number;
+  /** Top of that lowest band, in unit/ac. */
+  lagBelow?: number;
 }
 
 function toNum(s: string | undefined): number | undefined {
@@ -103,6 +107,10 @@ export function parseOpsReport(pages: TextItem[][]): OpsReport {
     if (near) r.rateBins.push({ rate: parseFloat(near.str), pct: parseFloat(p.str) });
   }
   r.rateBins.sort((a, b) => b.rate - a.rate);
+  if (r.rateBins.length >= 2) {
+    r.lagAreaPct = r.rateBins[r.rateBins.length - 1].pct / 100;
+    r.lagBelow = r.rateBins[r.rateBins.length - 2].rate;
+  }
   if (r.appliedTotal === undefined && r.appliedRate !== undefined) r.appliedTotal = r.appliedRate * r.areaAc;
   return r;
 }
@@ -140,6 +148,10 @@ export function combineReports(reports: OpsReport[]): OpsReport | null {
     appliedRate: appliedTotal !== undefined ? appliedTotal / areaAc : undefined,
     targetRate: targetTotal !== undefined ? targetTotal / areaAc : reports[0].targetRate,
     minutes: sum('minutes'),
+    lagAreaPct: reports.every((r) => r.lagAreaPct !== undefined)
+      ? reports.reduce((s, r) => s + r.lagAreaPct! * r.areaAc, 0) / areaAc
+      : undefined,
+    lagBelow: reports[0].lagBelow,
     start: starts.length ? new Date(Math.min(...starts)) : undefined,
     end: ends.length ? new Date(Math.max(...ends)) : undefined,
     rateBins: [],
