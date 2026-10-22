@@ -32,9 +32,13 @@ averages under the requested rate. Each machine can carry its decrease (e.g.
 4% under, or enter the requested and job-average rates and it works it out),
 and every answer accounts for it.
 
-**Machine & calibration window:** machine setup (width, sections, bias,
-average rate decrease) and the finished-job check live in their own window,
-opened with 🚜 in the top bar.
+**Tabs:** the bar along the bottom switches between five pages. **Job** is
+the answer, the work plan and the map. **Fields** starts a job from a ticket and
+holds your saved fields. **Machine** has width, sections, bias and rate
+decrease. **Calibration** finishes jobs and shows the calibration log and
+learned product densities. **Settings** covers appearance, imagery, backups and
+the advanced connections. Motion is kept subtle and follows the iPad's Reduce
+Motion setting.
 
 **Check a finished job:** enter the load, what's left, and the monitor's
 applied acres and average rate. The app separates rate tracking from what
@@ -49,7 +53,7 @@ that doesn't fit the others is flagged and can be left out or deleted.
 recalibrating from a clean slate after a repair or a new controller.
 
 **Finish job from the Operations Center report:** after the field, tap
-**Finish job** on the ticket (Product card) or in 🚜 → Calibrate, and load the
+**Finish job** on the ticket (Product card) or on the Calibration tab, and load the
 job report PDF from Operations Center. The app reads the monitor's applied
 acres, applied total, applied and target rate, times and machine serial (which
 picks the machine next time). Product loaded comes from the ticket and the

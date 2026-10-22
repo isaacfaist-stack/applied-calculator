@@ -26,8 +26,8 @@ for the numbers. One person's daily use is small.
 
 Pick one:
 
-- **On the iPad:** ⚙︎ Settings → Satellite imagery → paste the key → *Save
-  imagery settings*. It's stored only on that iPad.
+- **On the iPad:** Settings tab → Advanced → Google Maps API key → paste the key → *Save
+  key*. It's stored only on that iPad.
 - **Built into the app** (every iPad gets it automatically): in the GitHub
   repo, **Settings → Secrets and variables → Actions → New repository secret**,
   name it `GOOGLE_MAPS_API_KEY`, and paste the key. The next deploy includes
@@ -44,7 +44,7 @@ Pick one:
   imagery.
 - The map shows the attribution Google returns for the area in view
   ("Google Maps · Imagery ©…"), as Google requires.
-- If Google imagery doesn't show, open **⚙︎ Settings → Test Google imagery**.
+- If Google imagery doesn't show, open the **Settings** tab → **Advanced** → **Test Google imagery**.
   It asks Google directly and says in plain words what to fix (website
   restriction, Map Tiles API not enabled, billing, or a mistyped key), along
   with Google's own error message.

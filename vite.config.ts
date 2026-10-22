@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
+
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
+const built = new Date().toISOString().slice(0, 10);
 import { VitePWA } from 'vite-plugin-pwa';
 
 // BASE_PATH lets the same build run at a domain root or under a sub-path
@@ -7,6 +11,7 @@ const base = process.env.BASE_PATH ?? '/';
 
 export default defineConfig({
   base,
+  define: { __APP_VERSION__: JSON.stringify(`${pkg.version} (${built})`) },
   worker: { format: 'es' },
   plugins: [
     VitePWA({

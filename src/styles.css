@@ -1814,3 +1814,566 @@ dialog.setup {
 .finish-inputs .small-btn {
   margin-left: 0;
 }
+
+/* =============================================================================
+   Design pass: pages, tab bar, refined surfaces and motion
+   ========================================================================== */
+
+:root {
+  --bg: #f2f4f1;
+  --surface: #ffffff;
+  --surface-2: #f5f7f4;
+  --text: #101a13;
+  --muted: #5e6b61;
+  --line: #e0e5de;
+  --accent: #1d7a3b;
+  --accent-soft: #e5f2e9;
+  --shadow: 0 1px 2px rgb(16 26 19 / 5%), 0 6px 20px rgb(16 26 19 / 6%);
+  --shadow-lift: 0 2px 6px rgb(16 26 19 / 8%), 0 16px 40px rgb(16 26 19 / 12%);
+  --radius: 16px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --tabbar-h: 60px;
+  --bar-bg: rgb(255 255 255 / 86%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #0b0f0c;
+    --surface: #141a15;
+    --surface-2: #1a221c;
+    --line: #26302a;
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%);
+    --shadow-lift: 0 16px 40px rgb(0 0 0 / 50%);
+    --bar-bg: rgb(20 26 21 / 88%);
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #0b0f0c;
+  --surface: #141a15;
+  --surface-2: #1a221c;
+  --line: #26302a;
+  --shadow: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-lift: 0 16px 40px rgb(0 0 0 / 50%);
+  --bar-bg: rgb(20 26 21 / 88%);
+}
+
+html,
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: -0.005em;
+}
+
+/* Top bar ---------------------------------------------------------------------- */
+
+.topbar {
+  min-height: 60px;
+  padding: 6px 16px;
+  background: var(--bar-bg);
+  -webkit-backdrop-filter: saturate(1.6) blur(16px);
+  backdrop-filter: saturate(1.6) blur(16px);
+  position: relative;
+  z-index: 800;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 750;
+  font-size: 1.1rem;
+  letter-spacing: -0.01em;
+  animation: fadeIn 0.25s var(--ease);
+}
+
+.brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 15%);
+}
+
+.field-btn {
+  border-radius: 12px;
+  padding: 6px 10px;
+  margin-left: -10px;
+  transition: background-color 0.2s;
+  animation: fadeIn 0.25s var(--ease);
+}
+
+.gps-chip.off-page {
+  display: none;
+}
+
+/* Pages ------------------------------------------------------------------------- */
+
+.pages {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.pages > .page {
+  height: 100%;
+}
+
+.page-scroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.page-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 8px 20px 40px;
+}
+
+.page-head {
+  padding: 18px 2px 14px;
+}
+
+.page-head h1 {
+  margin: 0 0 4px;
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+}
+
+.page-head p {
+  margin: 0;
+}
+
+.page-in {
+  animation: pageIn 0.26s var(--ease);
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.card h2 {
+  font-size: 1.08rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.about {
+  text-align: center;
+  margin-top: 24px;
+}
+
+#pageFields .sheet-actions .btn,
+#pageSettings .row .btn {
+  flex: 0 0 auto;
+}
+
+#pageFields .field-list {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 0 14px;
+}
+
+#pageFields .field-list li:last-child {
+  border-bottom: 0;
+}
+
+#pageFields .multi-bar {
+  bottom: 0;
+  margin: 12px 0 0;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lift);
+  padding: 12px 16px;
+}
+
+.finish-entry {
+  background: linear-gradient(135deg, var(--accent-soft), var(--surface));
+  box-shadow: var(--shadow);
+  margin-bottom: 14px;
+}
+
+#manualCheck summary h2 {
+  margin: 0;
+}
+
+/* Tab bar --------------------------------------------------------------------- */
+
+.tabbar {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  padding: 4px max(8px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(8px, env(safe-area-inset-left));
+  background: var(--bar-bg);
+  -webkit-backdrop-filter: saturate(1.6) blur(16px);
+  backdrop-filter: saturate(1.6) blur(16px);
+  border-top: 1px solid var(--line);
+  position: relative;
+  z-index: 800;
+}
+
+.tabbar button {
+  height: var(--tabbar-h);
+  border: 0;
+  background: none;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: color 0.2s var(--ease);
+}
+
+.tabbar svg {
+  width: 44px;
+  height: 28px;
+  padding: 3px 11px;
+  border-radius: 999px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition:
+    background-color 0.25s var(--ease),
+    transform 0.25s var(--ease);
+}
+
+.tabbar button[aria-selected='true'] {
+  color: var(--accent);
+}
+
+.tabbar button[aria-selected='true'] svg {
+  background: var(--accent-soft);
+  transform: translateY(-1px);
+}
+
+.tabbar button:active svg {
+  transform: scale(0.92);
+}
+
+/* Surfaces ---------------------------------------------------------------------- */
+
+.card {
+  border-radius: var(--radius);
+  border-color: var(--line);
+  box-shadow: var(--shadow);
+  margin-bottom: 14px;
+}
+
+.hero {
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, var(--surface)), var(--surface) 55%);
+}
+
+.answer-rate {
+  font-size: 3.4rem;
+  letter-spacing: -0.035em;
+}
+
+.answer-rate.bump {
+  animation: bump 0.45s var(--ease);
+}
+
+.stats3 > div {
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.computing {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+/* Controls ---------------------------------------------------------------------- */
+
+.btn {
+  border-radius: 12px;
+  transition:
+    transform 0.12s var(--ease),
+    background-color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s,
+    filter 0.2s;
+}
+
+.btn:active,
+.choice:active,
+.map-btn:active,
+.icon-btn:active {
+  transform: scale(0.97);
+}
+
+.btn.primary {
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--accent) 30%, transparent), 0 4px 12px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  box-shadow: none;
+  cursor: default;
+}
+
+@media (hover: hover) {
+  .btn:hover:not(:disabled) {
+    filter: brightness(0.97);
+  }
+  .btn.primary:hover:not(:disabled) {
+    filter: brightness(1.06);
+  }
+  .choice:hover {
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+  }
+}
+
+.choice {
+  transition:
+    transform 0.12s var(--ease),
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.12s var(--ease), background-color 0.2s;
+}
+
+.ico {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.field-list .del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.seg button {
+  transition:
+    background-color 0.22s var(--ease),
+    color 0.22s var(--ease),
+    box-shadow 0.22s var(--ease);
+}
+
+.seg button[aria-checked='true'] {
+  box-shadow: 0 1px 3px rgb(0 0 0 / 15%);
+}
+
+.field > input,
+.input-unit,
+select {
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.input-unit:focus-within,
+.field > input:focus,
+select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Folding cards open smoothly. */
+details.fold[open] > :not(summary) {
+  animation: foldIn 0.24s var(--ease);
+}
+
+details.card summary::after {
+  transition: transform 0.25s var(--ease);
+}
+
+/* Map chrome ----------------------------------------------------------------------- */
+
+.map-btn {
+  background: rgb(255 255 255 / 90%);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 25%);
+  transition:
+    transform 0.12s var(--ease),
+    opacity 0.2s;
+}
+
+.map-btn svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: #1a241c;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.map-legend,
+.draw-bar {
+  animation: fadeUp 0.25s var(--ease);
+}
+
+/* Windows (dialogs) ------------------------------------------------------------- */
+
+dialog.sheet {
+  border-radius: 20px;
+  box-shadow: var(--shadow-lift);
+}
+
+dialog.sheet[open] {
+  animation: sheetIn 0.28s var(--ease);
+}
+
+dialog.sheet[open]::backdrop {
+  background: rgb(10 16 12 / 45%);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  animation: fadeIn 0.25s ease;
+}
+
+.toast {
+  bottom: calc(var(--tabbar-h) + 20px + env(safe-area-inset-bottom));
+  border-radius: 14px;
+  background: rgb(17 24 19 / 94%);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+.toast:not([hidden]) {
+  animation: toastIn 0.3s var(--ease);
+}
+
+dialog .toast {
+  bottom: 20px;
+}
+
+.field-list li,
+.cal-list li {
+  animation: fadeIn 0.2s ease;
+}
+
+/* Motion ------------------------------------------------------------------------- */
+
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes foldIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes sheetIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+}
+
+@keyframes bump {
+  30% {
+    transform: scale(1.05);
+    color: var(--accent);
+  }
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after,
+  ::backdrop {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Phones: tighter page padding and a shorter map. */
+@media (max-width: 560px) {
+  .page-inner {
+    padding: 4px 14px 32px;
+  }
+  .page-head h1 {
+    font-size: 1.7rem;
+  }
+  .tabbar span {
+    font-size: 0.66rem;
+  }
+}
+
+.card > details.advanced {
+  margin: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+
+.card > details.advanced > summary {
+  color: var(--text);
+}
+
+/* Phones: compact map buttons so all five fit the shorter map. */
+@media (max-width: 560px) {
+  .map-tools {
+    top: 8px;
+    right: 8px;
+    gap: 6px;
+  }
+  .map-btn {
+    width: 46px;
+    height: 46px;
+    border-radius: 12px;
+  }
+  .map-btn small {
+    display: none;
+  }
+  .map-legend {
+    right: 62px;
+    max-width: calc(100% - 74px);
+  }
+}

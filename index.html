@@ -14,6 +14,7 @@
   </head>
   <body>
     <header class="topbar">
+      <div class="brand" id="brand" hidden><svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#1f7a3a"/><g fill="none" stroke="#fff" stroke-linejoin="round"><path d="M104 150 L380 104 L420 360 L140 412 Z" stroke-width="30"/></g><g stroke="#fde047" stroke-width="18" stroke-linecap="round"><path d="M205 196 L232 356"/><path d="M258 187 L285 347"/><path d="M311 178 L338 338"/></g></svg><span class="brand-name">Applied Acres</span></div>
       <button class="field-btn" id="fieldBtn" type="button">
         <span class="field-btn-label" id="fieldBtnLabel">Field</span>
         <span class="field-btn-name" id="fieldName">Choose a field</span>
@@ -21,12 +22,11 @@
       </button>
       <div class="topbar-right">
         <span class="gps-chip" id="gpsChip" hidden></span>
-        <button class="icon-btn" id="machineBtn" type="button" aria-label="Machine and calibration">🚜</button>
-        <button class="icon-btn" id="settingsBtn" type="button" aria-label="Settings">⚙︎</button>
       </div>
     </header>
 
-    <main class="layout">
+    <div class="pages" id="pages">
+    <main class="layout page" data-page="job" id="pageJob">
       <section class="panel" id="panel">
         <!-- Answer -->
         <div class="card hero" id="hero">
@@ -179,11 +179,11 @@
       <section class="mapwrap">
         <div id="map"></div>
         <div class="map-tools">
-          <button class="map-btn" type="button" id="imageryBtn"><span aria-hidden="true">🛰</span><small>Imagery</small></button>
-          <button class="map-btn" type="button" id="locateBtn"><span aria-hidden="true">◎</span><small>Me</small></button>
-          <button class="map-btn" type="button" id="layersBtn"><span aria-hidden="true">▦</span><small>Coverage</small></button>
-          <button class="map-btn" type="button" id="fitBtn"><span aria-hidden="true">⤢</span><small>Field</small></button>
-          <button class="map-btn" type="button" id="editMapBtn" hidden><span aria-hidden="true">✎</span><small>Boundary</small></button>
+          <button class="map-btn" type="button" id="imageryBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg><small>Imagery</small></button>
+          <button class="map-btn" type="button" id="locateBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><small>Me</small></button>
+          <button class="map-btn" type="button" id="layersBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg><small>Coverage</small></button>
+          <button class="map-btn" type="button" id="fitBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><small>Field</small></button>
+          <button class="map-btn" type="button" id="editMapBtn" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg><small>Boundary</small></button>
         </div>
         <div class="map-legend" id="mapLegend" hidden>
           <span><i class="sw single"></i>Once</span>
@@ -208,11 +208,12 @@
       </section>
     </main>
 
-    <!-- Fields sheet -->
-    <dialog class="sheet" id="fieldsSheet">
-      <div class="sheet-head">
-        <h2>Jobs &amp; fields</h2>
-        <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
+    <!-- Fields page -->
+    <section class="page page-scroll" data-page="fields" id="pageFields" hidden>
+      <div class="page-inner">
+      <div class="page-head">
+        <h1>Fields</h1>
+        <p class="muted">Start a job from a blend ticket, or pick, import or draw a field.</p>
       </div>
       <div class="sheet-actions">
         <button class="btn primary" type="button" id="newJobBtn" data-action="new-job">New job from ticket</button>
@@ -237,7 +238,8 @@
           <button class="btn primary" type="button" id="multiGo">Plan together</button>
         </div>
       </div>
-    </dialog>
+      </div>
+    </section>
 
     <!-- Remote (Agvance) sheet -->
     <dialog class="sheet" id="remoteSheet">
@@ -250,17 +252,14 @@
     </dialog>
 
 
-    <!-- Machine & calibration -->
-    <dialog class="sheet" id="machineSheet">
-      <div class="sheet-head">
-        <h2>Machine &amp; calibration</h2>
-        <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
+    <!-- Machine page -->
+    <section class="page page-scroll" data-page="machine" id="pageMachine" hidden>
+      <div class="page-inner">
+      <div class="page-head">
+        <h1>Machine</h1>
+        <p class="muted">Width, sections and the corrections the app applies for this machine.</p>
       </div>
-      <div class="seg sheet-tabs" id="machineTabs" role="tablist">
-        <button type="button" data-v="machine">Machine</button>
-        <button type="button" data-v="calibrate">Calibrate</button>
-      </div>
-      <section class="tab-pane" id="machinePane">
+      <div class="card" id="machinePane">
           <div class="ctl col">
             <select id="machineSelect" aria-label="Machine"></select>
           </div>
@@ -328,13 +327,28 @@
             <button class="btn" type="button" id="renameMachineBtn">Rename</button>
             <button class="btn danger-text" type="button" id="deleteMachineBtn">Delete</button>
           </div>
-        </section>
-      <section class="tab-pane" id="calibratePane" hidden>
+      </div>
+      </div>
+    </section>
+
+    <!-- Calibration page -->
+    <section class="page page-scroll" data-page="calibrate" id="pageCalibrate" hidden>
+      <div class="page-inner" id="calibratePane">
+      <div class="page-head">
+        <h1>Calibration</h1>
+        <p class="muted">Finish jobs here. Each one tunes <span id="calMachineHead">this machine</span>.</p>
+      </div>
         <button class="choice finish-entry" type="button" data-action="finish-job">
           <strong>Finish a job from its Operations Center report</strong>
           <span class="muted small">Fastest: load the report PDF, enter what's left, done.</span>
         </button>
-        <h3>Or enter a finished job by hand <button type="button" class="info" data-help="calibrate" aria-label="What is checking a finished job?">i</button></h3>
+          <div class="card" id="calLogWrap">
+          <h2 class="card-title">Calibration log <span class="muted" id="calMachineName"></span> <button type="button" class="info" data-help="callog" aria-label="What is the calibration log?">i</button></h2>
+          <div id="calLog"></div>
+          </div>
+
+        <details class="card fold" id="manualCheck">
+        <summary><h2>Enter a finished job by hand</h2> <button type="button" class="info" data-help="calibrate" aria-label="What is checking a finished job?">i</button><span class="muted sum-hint">without a report</span></summary>
           <p class="muted small">
             Enter what really happened to work out this machine's rate tracking and whether the density or a bias needs
             changing.
@@ -399,31 +413,32 @@
           </div>
           <div id="ckResult"></div>
 
-          <div id="calLogWrap">
-          <h3 class="cal-head">Calibration log <span class="muted" id="calMachineName"></span> <button type="button" class="info" data-help="callog" aria-label="What is the calibration log?">i</button></h3>
-          <div id="calLog"></div>
-          </div>
-
-          <h3 class="cal-head">Product densities <button type="button" class="info" data-help="densitylearn" aria-label="How are product densities learned?">i</button></h3>
+        </details>
+          <div class="card">
+          <h2 class="card-title">Product densities <button type="button" class="info" data-help="densitylearn" aria-label="How are product densities learned?">i</button></h2>
           <div id="densityLib"></div>
-        </section>
-    </dialog>
-
-    <!-- Settings sheet -->
-    <dialog class="sheet" id="settingsSheet">
-      <div class="sheet-head">
-        <h2>Settings</h2>
-        <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
+          </div>
       </div>
+    </section>
+
+    <!-- Settings page -->
+    <section class="page page-scroll" data-page="settings" id="pageSettings" hidden>
+      <div class="page-inner">
+      <div class="page-head">
+        <h1>Settings</h1>
+      </div>
+      <div class="card">
+      <h2>Appearance</h2>
       <div class="ctl col">
-        <span class="ctl-label">Appearance</span>
         <div class="seg" id="themeSeg" role="radiogroup">
           <button type="button" data-v="auto">Auto</button>
           <button type="button" data-v="light">Day</button>
           <button type="button" data-v="dark">Night</button>
         </div>
       </div>
-      <h3>Satellite imagery</h3>
+      </div>
+      <div class="card">
+      <h2>Satellite imagery</h2>
       <div class="ctl col">
         <div class="seg" id="imagerySeg" role="radiogroup">
           <button type="button" data-v="google-satellite">Google</button>
@@ -431,7 +446,10 @@
           <button type="button" data-v="esri">Esri</button>
         </div>
       </div>
-      <h3>Data</h3>
+      </div>
+      <div class="card">
+      <h2>Your data</h2>
+      <p class="muted small">Fields, machines, calibration and density readings live on this device and work offline.</p>
       <div class="row gap wrap">
         <button class="btn" type="button" id="exportBtn">Back up fields &amp; machines</button>
         <label class="btn file-btn">
@@ -440,6 +458,8 @@
         </label>
         <button class="btn" type="button" id="rerunSetupBtn">Run setup again</button>
       </div>
+      </div>
+      <div class="card">
       <details class="advanced">
         <summary>Advanced: Google Maps key, Agvance server</summary>
         <h4>Google Maps API key</h4>
@@ -473,7 +493,19 @@
         <button class="btn primary" type="button" id="saveServerBtn">Save</button>
       </div>
       </details>
-    </dialog>
+      </div>
+      <p class="muted small about">Applied Acres · <span id="appVersion"></span> · Everything is stored on this device. Back up to move it to another one.</p>
+      </div>
+    </section>
+    </div>
+
+    <nav class="tabbar" id="tabbar" role="tablist" aria-label="Pages">
+      <button type="button" role="tab" data-page="job"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg><span>Job</span></button>
+      <button type="button" role="tab" data-page="fields"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/><path d="m3 17.5 9 5 9-5" opacity=".5"/></svg><span>Fields</span></button>
+      <button type="button" role="tab" data-page="machine"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/></svg><span>Machine</span></button>
+      <button type="button" role="tab" data-page="calibrate"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3 7 4-14 3 7h4"/></svg><span>Calibration</span></button>
+      <button type="button" role="tab" data-page="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg><span>Settings</span></button>
+    </nav>
 
     <!-- First-run setup -->
     <dialog class="sheet setup" id="setupSheet">
@@ -487,7 +519,7 @@
         <li data-s="3">Field</li>
       </ol>
       <section class="setup-pane" data-s="1">
-        <p class="muted">What are you applying with? You can add more machines later with 🚜.</p>
+        <p class="muted">What are you applying with? You can add more machines later on the Machine tab.</p>
         <div class="seg" id="suType" role="radiogroup">
           <button type="button" data-v="spinner">Dry spinner</button>
           <button type="button" data-v="boom">Dry boom</button>

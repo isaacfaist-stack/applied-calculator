@@ -1,6 +1,6 @@
 {
   "name": "applied-calculator",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Field application planner: estimates applied vs. surface acres from a boundary and machine width, and the rate adjustment to finish product exactly.",
   "scripts": {
     "dev": "vite --host",

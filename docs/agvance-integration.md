@@ -61,7 +61,7 @@ The server must send CORS headers allowing the app's origin
 (`Access-Control-Allow-Origin`, and `Authorization` in
 `Access-Control-Allow-Headers`).
 
-Once the server is running, open **Settings (⚙︎) → Agvance boundary server**,
+Once the server is running, open the **Settings** tab → **Advanced** → **Agvance boundary server**,
 enter its URL and token, and an **Agvance fields** button appears in the Field
 picker. Picking a field downloads its boundary and saves it on the iPad, so it
 keeps working without signal. Picking the same field again refreshes it.

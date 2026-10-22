@@ -50,6 +50,9 @@ function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
 
+const TRASH_ICON =
+  '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
+
 const fmt = (n: number, d = 1) =>
   Number.isFinite(n) ? n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) : '–';
 const fmtPct = (f: number, d = 1) => `${f >= 0 ? '+' : '−'}${fmt(Math.abs(f * 100), d)}%`;
@@ -727,7 +730,7 @@ function renderResults() {
     if (byDensity) reasons.push(`True density ${fmt(density ?? 0, 1)} lb/ft³: blend tickets can be several pounds off.`);
     if (Math.abs(bias) >= 0.05 || Math.abs(1 - tracking) >= 0.05) {
       reasons.push(
-        `Machine corrections are large (bias ${fmtPct(bias)}, rate decrease ${fmt((1 - tracking) * 100, 1)}%). Check them with 🚜.`,
+        `Machine corrections are large (bias ${fmtPct(bias)}, rate decrease ${fmt((1 - tracking) * 100, 1)}%). Check them on the Machine tab.`,
       );
     }
     reasons.push(`Target rate ${fmt(rate, 1)} ${unit}/ac and the right unit.`);
@@ -1130,7 +1133,7 @@ function renderCalLog() {
             ${odd && !c.excluded ? '<span class="cal-odd">⚠ Doesn\'t fit the other jobs. Wrong density or a typo? Consider leaving it out.</span>' : ''}
           </div>
           <button class="btn small-btn" type="button" data-cal="toggle" data-id="${c.id}" aria-pressed="${!c.excluded}">${c.excluded ? 'Left out' : 'Counted'}</button>
-          <button class="icon-btn cal-del" type="button" data-cal="del" data-id="${c.id}" aria-label="Delete ${esc(c.label)}">🗑</button>
+          <button class="icon-btn cal-del" type="button" data-cal="del" data-id="${c.id}" aria-label="Delete ${esc(c.label)}">${TRASH_ICON}</button>
         </li>`;
       })
       .join('')}</ul>`,
@@ -1254,7 +1257,7 @@ function renderDensityLib() {
       (r) => `<li>
         <div class="cal-main"><strong>${esc(r.label || r.ingredients.map((i) => i.name).join(' + '))}: ${fmt(r.density, 1)} lb/ft³</strong>
         <span class="muted small">${new Date(r.date).toLocaleDateString()} · ${esc(r.ingredients.map((i) => `${i.name} ${fmt(i.rate, 0)}`).join(' + '))}</span></div>
-        <button class="icon-btn cal-del" type="button" data-dens-del="${r.id}" aria-label="Delete reading">🗑</button>
+        <button class="icon-btn cal-del" type="button" data-dens-del="${r.id}" aria-label="Delete reading">${TRASH_ICON}</button>
       </li>`,
     )
     .join('');
@@ -1325,28 +1328,15 @@ $('densityLearn').addEventListener('click', (e) => {
   renderResults();
 });
 
-// Machine & calibration window -------------------------------------------------
+// Machine and Calibration pages ------------------------------------------------
 
-function showMachineTab(tab: 'machine' | 'calibrate') {
-  setSeg('machineTabs', tab);
-  $('machinePane').hidden = tab !== 'machine';
-  $('calibratePane').hidden = tab !== 'calibrate';
-  if (tab === 'calibrate') {
-    prefillJobCheck();
-    renderJobCheck();
-    renderCalLog();
-    renderDensityLib();
-  }
+function renderCalibratePage() {
+  $('calMachineHead').textContent = activeMachine().name;
+  prefillJobCheck();
+  renderJobCheck();
+  renderCalLog();
+  renderDensityLib();
 }
-
-function openMachineSheet(tab: 'machine' | 'calibrate' = 'machine') {
-  syncMachineUi();
-  showMachineTab(tab);
-  openSheet('machineSheet');
-}
-
-$('machineBtn').addEventListener('click', () => openMachineSheet());
-onSeg('machineTabs', (v) => showMachineTab(v as 'machine' | 'calibrate'));
 for (const id of ['ckLoaded', 'ckLeft', 'ckAcres', 'ckAchieved', 'ckRequested', 'ckProgDensity', 'ckTrueDensity']) {
   $(id).addEventListener('input', renderJobCheck);
 }
@@ -1361,7 +1351,7 @@ function selectField(id: string | null, opts: { keepView?: boolean } = {}) {
 }
 
 /** Selects one or more fields; several are planned and totaled as one job. */
-function selectFields(ids: string[], opts: { keepView?: boolean } = {}) {
+function selectFields(ids: string[], opts: { keepView?: boolean; stay?: boolean } = {}) {
   if (editSession) stopEdit();
   const picked = ids.map((id) => fields.find((f) => f.id === id)).filter((f): f is FieldRecord => !!f);
   entries = [];
@@ -1404,7 +1394,19 @@ function selectFields(ids: string[], opts: { keepView?: boolean } = {}) {
   renderResults();
   updateGpsChip();
   schedulePlan();
-  (document.getElementById('fieldsSheet') as HTMLDialogElement).close();
+  if (!opts.stay && currentPage === 'fields') showPage('job');
+// A small pulse when the answer changes, so a new number gets noticed.
+let shownAnswer = $('answerRate').textContent;
+new MutationObserver(() => {
+  const el = $('answerRate');
+  if (el.textContent === shownAnswer || el.textContent === '–') return;
+  const first = shownAnswer === '–';
+  shownAnswer = el.textContent;
+  if (first) return;
+  el.classList.remove('bump');
+  void el.offsetWidth;
+  el.classList.add('bump');
+}).observe($('answerRate'), { childList: true, characterData: true, subtree: true });
 }
 
 function fieldMeta(f: FieldRecord): string {
@@ -1492,7 +1494,7 @@ function renderFieldList() {
           <span class="name">${esc(f.name)}${here?.id === f.id ? ' <span class="here">• you are here</span>' : ''}</span>
           <span class="meta">${esc(cachedMeta(f))}</span>
         </button>
-        ${multiMode ? '' : `<button type="button" class="del" data-del="${f.id}" aria-label="Delete ${esc(f.name)}">🗑</button>`}
+        ${multiMode ? '' : `<button type="button" class="del" data-del="${f.id}" aria-label="Delete ${esc(f.name)}">${TRASH_ICON}</button>`}
       </li>`,
     )
     .join('');
@@ -1508,7 +1510,10 @@ $('fieldList').addEventListener('click', (e) => {
       store.deleteField(f.id);
       fields = store.fields();
       if (entries.some((e) => e.field.id === f.id)) {
-        selectFields(entries.map((e) => e.field.id).filter((id) => id !== f.id));
+        selectFields(
+          entries.map((e) => e.field.id).filter((id) => id !== f.id),
+          { stay: true },
+        );
       } else drawBoundary();
       renderFieldList();
     }
@@ -1538,9 +1543,7 @@ for (const d of document.querySelectorAll<HTMLDialogElement>('dialog')) {
 }
 
 function openFields() {
-  setMultiMode(false);
-  $('syncBtn').hidden = !settings.boundaryServer?.url;
-  openSheet('fieldsSheet');
+  showPage('fields');
 }
 
 $('fieldBtn').addEventListener('click', openFields);
@@ -1675,7 +1678,7 @@ const EDIT_HINTS: Record<EditMode, string> = {
 
 function startEdit(mode: EditMode, target?: EditTarget, fieldId?: string) {
   if (editSession) stopEdit();
-  (document.getElementById('fieldsSheet') as HTMLDialogElement).close();
+  showPage('job');
   const field = fieldId ? fields.find((x) => x.id === fieldId) ?? null : activeField;
   let initial: L.LatLng[] = [];
   let note = '';
@@ -1958,7 +1961,6 @@ async function renderRemote() {
 }
 
 $('syncBtn').addEventListener('click', () => {
-  ($('fieldsSheet') as HTMLDialogElement).close();
   openSheet('remoteSheet');
   renderRemote();
 });
@@ -2197,7 +2199,7 @@ for (const el of document.querySelectorAll<HTMLInputElement>('input[type="number
 // ---------------------------------------------------------------------------
 // Settings sheet
 
-$('settingsBtn').addEventListener('click', () => {
+function syncSettingsPage() {
   ($('serverUrl') as HTMLInputElement).value = settings.boundaryServer?.url ?? '';
   ($('serverToken') as HTMLInputElement).value = settings.boundaryServer?.token ?? '';
   setSeg('themeSeg', settings.theme);
@@ -2207,8 +2209,7 @@ $('settingsBtn').addEventListener('click', () => {
   ($('googleKey') as HTMLInputElement).placeholder = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
     ? 'Using the key built into this app'
     : 'AIza…';
-  openSheet('settingsSheet');
-});
+}
 onSeg('themeSeg', (v) => {
   settings.theme = v as Settings['theme'];
   saveSettings();
@@ -2463,7 +2464,6 @@ $('suDemo').addEventListener('click', () => {
   toast('Demo field loaded. Try changing the rate or work plan.');
 });
 $('rerunSetupBtn').addEventListener('click', () => {
-  ($('settingsSheet') as HTMLDialogElement).close();
   openSetup();
 });
 
@@ -2523,7 +2523,6 @@ function jobError(msg: string) {
 
 function openJob() {
   if (editSession) stopEdit();
-  (document.getElementById('fieldsSheet') as HTMLDialogElement).close();
   job = { ticket: null, offered: [], picked: new Set() };
   $('jobTicketRead').hidden = true;
   $('jobTicketRead').innerHTML = '';
@@ -2813,6 +2812,7 @@ function startJob() {
   ($('jobSheet') as HTMLDialogElement).close();
   job = null;
   selectFields(list.map((f) => f.id));
+  showPage('job');
   toast(t?.ticketNo ? `Ticket ${t.ticketNo} started` : 'Job started');
 }
 
@@ -2851,7 +2851,6 @@ function planIsForJob(): boolean {
 
 function openFinish() {
   if (editSession) stopEdit();
-  for (const id of ['machineSheet', 'fieldsSheet']) (document.getElementById(id) as HTMLDialogElement).close();
   finishReports = [];
   const j = settings.job;
   const p = settings.product;
@@ -3068,9 +3067,51 @@ $('finishSave').addEventListener('click', () => {
   ($('finishSheet') as HTMLDialogElement).close();
   renderResults();
   // Show the updated averages right away.
-  openMachineSheet('calibrate');
+  showPage('calibrate');
   const n = m.calibrations.length;
   toast(`Logged to ${m.name} (${n} job${n === 1 ? '' : 's'})${cup ? ' and the density reading saved' : ''}`);
+});
+
+
+// ---------------------------------------------------------------------------
+// Pages and the tab bar
+
+type Page = 'job' | 'fields' | 'machine' | 'calibrate' | 'settings';
+let currentPage: Page = 'job';
+
+function showPage(p: Page) {
+  const changed = p !== currentPage;
+  currentPage = p;
+  if (p !== 'job' && editSession) stopEdit();
+  for (const el of document.querySelectorAll<HTMLElement>('#pages > [data-page]')) {
+    const on = el.dataset.page === p;
+    el.hidden = !on;
+    if (on && changed) {
+      el.classList.remove('page-in');
+      void el.offsetWidth; // restart the entrance animation
+      el.classList.add('page-in');
+      if (el.classList.contains('page-scroll')) el.scrollTop = 0;
+    }
+  }
+  for (const b of document.querySelectorAll<HTMLButtonElement>('#tabbar [data-page]')) {
+    b.setAttribute('aria-selected', String(b.dataset.page === p));
+  }
+  $('brand').hidden = p === 'job';
+  $('fieldBtn').hidden = p !== 'job';
+  $('gpsChip').classList.toggle('off-page', p !== 'job');
+  if (p === 'job') requestAnimationFrame(() => map.invalidateSize());
+  if (p === 'fields') {
+    setMultiMode(false);
+    $('syncBtn').hidden = !settings.boundaryServer?.url;
+  }
+  if (p === 'machine') syncMachineUi();
+  if (p === 'calibrate') renderCalibratePage();
+  if (p === 'settings') syncSettingsPage();
+}
+
+$('tabbar').addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLElement>('[data-page]');
+  if (b) showPage(b.dataset.page as Page);
 });
 
 // ---------------------------------------------------------------------------
@@ -3078,6 +3119,8 @@ $('finishSave').addEventListener('click', () => {
 
 applyTheme();
 restoreFolds();
+$('appVersion').textContent = `version ${__APP_VERSION__}`;
+showPage('job');
 void setBaseLayer();
 syncControls();
 $('layersBtn').setAttribute('aria-pressed', 'true');
